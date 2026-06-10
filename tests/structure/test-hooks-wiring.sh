@@ -35,7 +35,9 @@ CHECK="$(ZJSON="$Z" ROOT="$ROOT" node -e '
   out.push("pre_zensu " + pre.includes("@zensu"));
   const post = (hooks.postToolUse || []).map(h => h.matcher || "");
   out.push("post_shell " + (post.includes("shell") && post.includes("execute_bash")));
-  out.push("post_subagent " + post.includes("subagent"));
+  // live-verified: Kiro reports the spawn tool as "use_subagent" in payloads,
+  // so the delegate must be wired under BOTH the canonical and the alias name.
+  out.push("post_subagent " + (post.includes("subagent") && post.includes("use_subagent")));
   out.push("no_cache " + !JSON.stringify(hooks).includes("cache_ttl_seconds"));
   out.push("prompt " + (typeof j.prompt === "string" && j.prompt.includes("zensu-orchestrator.md")));
   out.push("skills " + (Array.isArray(j.resources) && j.resources.some(r => typeof r === "string" && r.startsWith("skill://"))));

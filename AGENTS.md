@@ -25,7 +25,14 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
   unwraps `additionalContext` to plain stdout. Never fork engine logic into the
   individual hook scripts.
 - `hooks/lib/*.sh` are verbatim upstream copies (plus `zensu-runtime.sh`).
-  Fix bugs upstream first, then re-sync.
+  Fix bugs upstream first, then re-sync. **Documented delta** (upstream-sync
+  candidate): `zensu-session.sh` consults the project-scoped
+  `.zensu/state/session-id-current.txt` (written by
+  `session-start-capture-sid.sh`) as the last step before the PPID fallback —
+  on Kiro, model-shell processes carry no session env and a different
+  ancestry, so without it skill-run `zensu-log.sh` calls arm a different
+  state file than the hooks read (live-verified via the promptfoo
+  diagnostics suite; pinned by `tests/structure/test-session-resolution.sh`).
 - Hooks are wired in `agents/cli/zensu.json` (Kiro hooks live inside agent
   configs). `agents/cli/zensu-plm.json` intentionally has NO `@zensu` write-gate
   hook — that is the per-agent replacement for upstream's `agent_type` exemption.

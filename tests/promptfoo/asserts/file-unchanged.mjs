@@ -8,7 +8,7 @@ const PF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export default (output, context) => {
   const vars = (context && context.vars) || {};
-  const label = String(vars.scenario || "default").replace(/[^a-z0-9-]/gi, "-");
+  const label = String(vars.label || vars.scenario || "default").replace(/[^a-z0-9-]/gi, "-");
   const rel = String(vars.file || "src/calc.js");
   const fixture = String(vars.fixture || "toy-app");
 

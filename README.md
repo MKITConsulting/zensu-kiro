@@ -79,19 +79,21 @@ phase-marker cheat sheet.
 | Upstream mechanism | Kiro CLI | Kiro IDE |
 |---|---|---|
 | Plugin packaging (`.claude-plugin/`) | `install.sh` (no native plugin system, [kirodotdev/Kiro#8578](https://github.com/kirodotdev/Kiro/issues/8578)) | **Power** (`POWER.md`) |
-| Skills `/zensu:x` | **FULL** — Agent Skills standard, `/zensu-x` slash commands | **FULL** (same skill dirs) |
-| Subagents | **FULL** — `subagent` tool, max 4 concurrent (5-aspect fan-out queues the fifth) | **FULL** — `.kiro/agents/*.md` |
-| TDD phase-gate (PreToolUse deny) | **FULL** — exit 2 + stderr via `kiro-shim.sh` | advisory (steering) — pending R8 |
-| MCP write-gate | **FULL** — `@zensu` matcher + strip chain | advisory (steering) |
-| Stop chain enforcement | **FULL** — native `{"decision":"block"}` (better than the Codex port) | n/a |
-| Review auto-fix loop (PostToolUse on agent completion) | wired on `postToolUse subagent` — **verify via diagnostics (R3)**; fallback: skill prose + stop backstop | skill prose |
-| Plan-approval TDD ask (ExitPlanMode) | **DEGRADED** — replaced by the per-turn `userPromptSubmit` TDD reminder + steering | same |
+| Skills `/zensu:x` | **FULL ✓ live-verified** — Agent Skills standard; `/zensu-x` slash commands interactively, invoke by name in `--no-interactive` (headless parses a leading `/` as a built-in command) | **FULL** (same skill dirs) |
+| Subagents | **FULL ✓ live-verified** — `subagent` tool (payloads report `use_subagent`), max 4 concurrent (5-aspect fan-out queues the fifth) | **FULL** — `.kiro/agents/*.md` |
+| TDD phase-gate (PreToolUse deny) | **FULL ✓ live-verified (D2)** — exit 2 + stderr via `kiro-shim.sh`; a real premature `write` was blocked, file unchanged | advisory (steering) — pending R8 |
+| MCP write-gate | **FULL ✓ live-verified (B3)** — `@zensu` matcher + strip chain denied a direct `create_feature` and redirected | advisory (steering) |
+| Stop chain enforcement | **mechanism ✓ live-verified (D3)** — enforcer fires and emits `{"decision":"block"}` (budget written); the re-prompt loop is interactive-session behavior, headless `--no-interactive` runs end regardless | n/a |
+| Review auto-fix loop (PostToolUse on agent completion) | **FULL ✓ live-verified (D4/R3)** — fires on `use_subagent` completion; wired under both matcher names | skill prose |
+| Plan-approval TDD ask (ExitPlanMode) | **DEGRADED by design** — replaced by the per-turn `userPromptSubmit` TDD reminder (**✓ live-verified, B2**: asks before editing, file untouched) + steering | same |
+| Session identity | payloads carry **no `session_id`** (live-verified) — convergence via the project-scoped `.zensu/state/session-id-current.txt` written at `agentSpawn` (pinned by `test-session-resolution.sh`) | same |
 | Context-compaction nudge | wired but **inert** (Claude-transcript-shaped payload) | n/a |
-| Session banner/primer | **FULL** (`agentSpawn`; fires on every spawn — no `source` field) | n/a |
-| Pulse session telemetry | **FULL** (plugin-root + MCP pulse tools) | **FULL** |
+| Session banner/primer | **FULL ✓ live-verified** (`agentSpawn`; payload keys `hook_event_name`/`cwd`/`prompt`, fires on every spawn) | n/a |
+| Pulse session telemetry | **FULL ✓ live-verified (B6)** (plugin-root + MCP pulse tools) | **FULL** |
 
-Run `bash tests/run-promptfoo.sh diagnostics` against a real `kiro-cli` to
-machine-verify the risk items (R2–R7, R11, R12) and update this matrix.
+Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite D1–D6 and
+behavior suite B1–B3+B6 green (`tests/promptfoo/results/`). Re-run
+`bash tests/run-promptfoo.sh diagnostics` after Kiro releases to re-verify.
 
 ## Configuration
 

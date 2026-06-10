@@ -40,6 +40,7 @@ printf '%s' "$INPUT" | node -e '
       exit = (typeof exit === "number") ? String(exit) : "?";
       let stdout = pick(resp, "stdout");
       if (typeof stdout !== "string") stdout = pick(resp, "output");
+      if (typeof stdout !== "string") stdout = pick(resp, "result");
       if (typeof stdout !== "string") stdout = (typeof resp === "string") ? resp : "";
       const tail = String(stdout).slice(-200);
       const interrupted = (pick(resp, "interrupted") === true) ? "true" : "false";

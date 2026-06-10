@@ -24,7 +24,13 @@ SID="$(PAYLOAD="$PAYLOAD" node -e '
   } catch (_) {}
 ' 2>/dev/null)"
 
-[ -z "$SID" ] && exit 0
+# Kiro hook payloads carry NO session_id (live-verified: agentSpawn keys are
+# hook_event_name/cwd/prompt). Synthesize a stable per-spawn id so the
+# current-session file still anchors hooks and model-shell zensu-log calls to
+# one state file for this session.
+if [ -z "$SID" ]; then
+  SID="kiro-$(date +%s)-$$"
+fi
 
 CACHE_DIR="${CLAUDE_PROJECT_DIR:-.}/.zensu/state"
 mkdir -p "$CACHE_DIR" 2>/dev/null || exit 0
@@ -33,6 +39,19 @@ TARGET="$CACHE_DIR/session-id-${KEY}.txt"
 TMP="$(mktemp "$CACHE_DIR/session-id-${KEY}.XXXXXX" 2>/dev/null)" || exit 0
 if printf '%s\n' "$SID" > "$TMP" 2>/dev/null; then
   mv "$TMP" "$TARGET" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+else
+  rm -f "$TMP" 2>/dev/null
+fi
+
+# Kiro: shell-tool processes carry no session env and a different ancestry
+# than this hook, so the keyed cache above never matches a model-run
+# `zensu-log.sh` call. Persist the id additionally as the project-scoped
+# "current session" file, which zensu_resolve_session_id consults as its
+# last step before the PPID fallback.
+CUR="$CACHE_DIR/session-id-current.txt"
+TMP="$(mktemp "$CACHE_DIR/session-id-current.XXXXXX" 2>/dev/null)" || exit 0
+if printf '%s\n' "$SID" > "$TMP" 2>/dev/null; then
+  mv "$TMP" "$CUR" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 else
   rm -f "$TMP" 2>/dev/null
 fi

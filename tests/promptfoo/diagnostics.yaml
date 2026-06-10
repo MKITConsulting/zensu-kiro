@@ -26,6 +26,7 @@ tests:
     vars:
       q: "First read the file src/calc.js. Then run the shell command: echo zensu-diagnostics. Then, if a zensu MCP tool named get_workflow_guide is available, call it once. Finally reply with exactly: DONE."
       scenario: dump-hooks
+      label: d1-payloads
       agent: zensu-dump
       fixture: toy-app
     assert:
@@ -44,19 +45,20 @@ tests:
       - type: javascript
         value: file://asserts/file-unchanged.mjs
 
-  - description: "D3 stop-block (R7) — open review chain refuses to stop"
+  - description: "D3 stop-block (R7) — enforcer fires and blocks on an open chain (headless does not re-prompt on the block; the loop is interactive-session behavior)"
     vars:
       q: "Run exactly this shell command: bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-complete. Then reply with exactly: DONE."
       scenario: d3-stop
       fixture: toy-app
     assert:
-      - type: contains-any
-        value: ["zensu-code-reviewer", "chain-enforcer", "review chain"]
+      - type: javascript
+        value: file://asserts/stop-block.mjs
 
   - description: "D4 subagent postToolUse (R3) — review delegate trigger"
     vars:
       q: "Use the subagent tool to spawn the agent zensu-review-aspect with this prompt: 'Perspective: tests. Review the file src/calc.js (5 lines) and report findings as bullet points.' When it returns, reply with exactly: DONE."
       scenario: dump-hooks
+      label: d4-subagent
       agent: zensu-dump
       fixture: toy-app
       expect: subagent
@@ -64,9 +66,9 @@ tests:
       - type: javascript
         value: file://asserts/dump-keys.mjs
 
-  - description: "D6 skills as slash commands (R11) — /zensu-help answers"
+  - description: "D6 skill activation (R11) — zensu-help answers (headless invokes by name; the /zensu-help slash form is interactive-only)"
     vars:
-      q: "/zensu-help What is Zensu and what are features in it? Answer in one short paragraph."
+      q: "Use the zensu-help skill to answer: what is Zensu and what are features in it? One short paragraph."
       scenario: d6-help
     assert:
       - type: contains-any

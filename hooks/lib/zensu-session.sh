@@ -63,6 +63,23 @@ zensu_resolve_session_id() {
       return 0
     fi
   fi
+  # Kiro delta (upstream-sync candidate, documented in AGENTS.md): the
+  # project-scoped current-session file written by session-start-capture-sid.
+  # Model-shell processes on Kiro carry neither a session env var nor the
+  # hook's ancestry, so every earlier step misses there; this keeps skill-run
+  # `zensu-log.sh` calls and hook payload resolution on the SAME state file.
+  # Last resort before the fallback — explicit ids and the keyed cache win.
+  cache="${CLAUDE_PROJECT_DIR:-.}/.zensu/state/session-id-current.txt"
+  if [ -f "$cache" ]; then
+    cached="$(cat "$cache" 2>/dev/null)"
+    cached="${cached//$'\n'/}"
+    cached="${cached//$'\r'/}"
+    sanitized="${cached//[^A-Za-z0-9_-]/_}"
+    if [ -n "$sanitized" ]; then
+      echo "$sanitized"
+      return 0
+    fi
+  fi
   echo "fallback_${key}"
 }
 

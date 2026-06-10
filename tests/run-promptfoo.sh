@@ -48,8 +48,13 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 
 echo "suite=$SUITE config=$CONFIG promptfoo=$PF (serial, no cache)"
+echo "note: the provider performs a real 'install.sh --scope user --no-default' (idempotent) — project dirs are sandboxed per test"
 cd "$PF_DIR"
 npx -y "$PF" eval -c "$CONFIG" --no-cache -j 1 --output "$OUT" "${FILTER_ARGS[@]}"
 RC=$?
+
+# Remove the diagnostics-only variant agent the dump-hooks scenario installs.
+rm -f "${KIRO_HOME:-$HOME/.kiro}/agents/zensu-dump.json" 2>/dev/null || true
+
 echo "results: $OUT"
 exit "$RC"

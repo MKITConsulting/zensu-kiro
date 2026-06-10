@@ -46,7 +46,8 @@
     "postToolUse": [
       { "matcher": "shell", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-bash-witness.sh" },
       { "matcher": "execute_bash", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-bash-witness.sh" },
-      { "matcher": "subagent", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-review-tdd-delegate.sh" }
+      { "matcher": "subagent", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-review-tdd-delegate.sh" },
+      { "matcher": "use_subagent", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-review-tdd-delegate.sh" }
     ],
     "stop": [
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh stop-chain-enforcer.sh" }

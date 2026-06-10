@@ -1,11 +1,16 @@
 // promptfoo custom provider — drives a real `kiro-cli chat --no-interactive`
-// per test case inside a fully isolated sandbox:
-//   - KIRO_HOME points into the sandbox (the user's ~/.kiro is never touched)
-//   - HOME is redirected so ~/.zensu lands in the sandbox too
-//   - install.sh installs the plugin into the sandbox home before the run
-//   - scenarios/<vars.scenario>/setup.sh seeds FSM state / variant agents
-//   - .zensu state/logs + payload dumps are copied to .artifacts/<test label>
-// Auth: uses the developer's logged-in kiro-cli session or KIRO_API_KEY.
+// per test case.
+//
+// Isolation model: PROJECT-level sandboxes only. Relocating KIRO_HOME/HOME
+// also relocates kiro-cli's auth state (verified: sandboxed runs prompt a
+// fresh browser login), so the provider instead performs a REAL user-level
+// `install.sh --scope user --no-default` (idempotent; installing the plugin
+// is the port's end state anyway) and isolates each test in a throwaway
+// project cwd. Project-local artifacts (.zensu state/logs, payload dumps)
+// are copied to .artifacts/<test label>; ~/.zensu/plugin-root is captured
+// for the B6 assert. Variant agents (zensu-dump) land in the real
+// ~/.kiro/agents — the runner removes them after the suite.
+// Auth: the developer's logged-in kiro-cli session or KIRO_API_KEY.
 import { execFileSync, execFile } from "node:child_process";
 import { mkdtempSync, mkdirSync, cpSync, existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,14 +33,13 @@ export default class KiroCliProvider {
 
   async callApi(prompt, context = {}) {
     const vars = (context && context.vars) || {};
-    const label = String(vars.scenario || vars.label || "default").replace(/[^a-z0-9-]/gi, "-");
+    const label = String(vars.label || vars.scenario || "default").replace(/[^a-z0-9-]/gi, "-");
     const agent = String(vars.agent || this.config.agent || "zensu");
     const timeoutMs = Number(vars.timeoutMs || this.config.timeoutMs || 300000);
 
     const sandbox = mkdtempSync(join(tmpdir(), "zensu-kiro-eval-"));
-    const home = join(sandbox, "home");
+    const home = process.env.HOME;
     const cwd = join(sandbox, "project");
-    mkdirSync(home, { recursive: true });
     mkdirSync(cwd, { recursive: true });
 
     if (vars.fixture) {
@@ -45,8 +49,6 @@ export default class KiroCliProvider {
 
     const env = {
       ...process.env,
-      HOME: home,
-      KIRO_HOME: join(home, ".kiro"),
       ZENSU_EVAL_SANDBOX: sandbox,
     };
 
@@ -89,7 +91,7 @@ export default class KiroCliProvider {
     for (const [src, dst] of [
       [join(cwd, ".zensu"), join(artifacts, "zensu")],
       [join(cwd, ".zensu-dump"), join(artifacts, "dump")],
-      [join(home, ".zensu"), join(artifacts, "home-zensu")],
+      [join(home, ".zensu", "plugin-root"), join(artifacts, "home-zensu", "plugin-root")],
     ]) {
       if (existsSync(src)) cpSync(src, dst, { recursive: true });
     }

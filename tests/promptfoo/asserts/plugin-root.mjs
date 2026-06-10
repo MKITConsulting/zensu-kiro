@@ -9,7 +9,7 @@ const PF_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export default (output, context) => {
   const vars = (context && context.vars) || {};
-  const label = String(vars.scenario || "default").replace(/[^a-z0-9-]/gi, "-");
+  const label = String(vars.label || vars.scenario || "default").replace(/[^a-z0-9-]/gi, "-");
   const f = join(PF_ROOT, ".artifacts", label, "home-zensu", "plugin-root");
   if (!existsSync(f)) return { pass: false, score: 0, reason: "plugin-root not captured from sandbox home" };
   const v = readFileSync(f, "utf8").trim();

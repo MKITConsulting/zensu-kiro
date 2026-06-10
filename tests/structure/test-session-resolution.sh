@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# S21a — session-id resolution for model-shell zensu-log calls on Kiro.
+# Live finding (diagnostics D2/D3): hooks receive the real session_id in their
+# payload, but `zensu-log.sh --tdd-begin` run from the model's shell tool has
+# no session source on Kiro (no CLAUDE_SESSION_ID env, no Claude transcript for
+# the helper, different process ancestry than the agentSpawn hook that wrote
+# the keyed cache) — it fell back to fallback_<ppid> and armed the WRONG state
+# file, so the gate/stop hooks saw an inactive session.
+# Contract: capture-sid persists the payload session_id ALSO to the
+# project-scoped `.zensu/state/session-id-current.txt`, and
+# zensu_resolve_session_id consults that file as the last step before the
+# PPID fallback (explicit id and keyed cache still win).
+set -u
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PASS=0; FAIL=0
+ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
+bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
+
+command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+unset CLAUDE_PROJECT_DIR CLAUDE_SESSION_ID 2>/dev/null || true
+mkdir -p "$TMP/home"
+export HOME="$TMP/home"
+SID="kiro-real-session-uuid-1234"
+SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+
+# 1) agentSpawn capture-sid writes the project-scoped current-session file
+printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" session-start-capture-sid.sh >/dev/null 2>&1
+[ -f "$TMP/.zensu/state/session-id-current.txt" ] && ok "session-id-current.txt written" || bad "session-id-current.txt missing"
+[ "$(cat "$TMP/.zensu/state/session-id-current.txt" 2>/dev/null | tr -d '[:space:]')" = "$SID" ] && ok "current file carries the payload sid" || bad "current file content wrong"
+
+# 2) a model-shell zensu-log call (no --session, no env, different ancestry)
+#    must arm the REAL session's state file via the current-file lookup
+( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" bash "$ROOT/hooks/lib/zensu-log.sh" --tdd-begin >/dev/null 2>&1 )
+[ -f "$TMP/.zensu/state/tdd-phase-${SID}.json" ] && ok "zensu-log armed the real session state file" || { bad "real-session state file missing"; ls "$TMP/.zensu/state" 2>/dev/null | sed 's/^/      /'; }
+
+# 3) and the gate (payload-sid resolution) must now see the armed session:
+#    RED_FAIL seeded via the same path -> fs_write on prod denied
+( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step s1 >/dev/null 2>&1 )
+( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step s1 --reason seeded >/dev/null 2>&1 )
+printf '{"tool_name":"fs_write","session_id":"%s","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >"$TMP/o" 2>"$TMP/e"
+RC=$?
+[ "$RC" -eq 2 ] && ok "gate denies with shell-seeded state (end-to-end session match)" || bad "gate rc=$RC, expected 2 (session still mismatched)"
+
+# 4) precedence: an explicit id still wins over the current file
+GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; CLAUDE_PROJECT_DIR="$TMP" zensu_resolve_session_id "explicit-id")"
+[ "$GOT" = "explicit-id" ] && ok "explicit id wins over current file" || bad "explicit id lost: got '$GOT'"
+
+# 5) LIVE-VERIFIED Kiro reality: hook payloads carry NO session_id at all
+#    (observed keys: hook_event_name, cwd, prompt). capture-sid must then
+#    SYNTHESIZE a session id and still write the current file, so hooks and
+#    model-shell zensu-log calls converge on one state file.
+TMP2="$(mktemp -d)"
+printf '{"hook_event_name":"agentSpawn","cwd":"%s","prompt":"hi"}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" session-start-capture-sid.sh >/dev/null 2>&1
+CUR="$TMP2/.zensu/state/session-id-current.txt"
+[ -f "$CUR" ] && ok "no-sid payload: current file still written (synthesized)" || bad "no-sid payload: current file missing"
+SYN="$(cat "$CUR" 2>/dev/null | tr -d '[:space:]')"
+printf '%s' "$SYN" | grep -qE '^[A-Za-z0-9_-]{8,}$' && ok "synthesized id is sane ('$SYN')" || bad "synthesized id malformed: '$SYN'"
+( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --tdd-begin >/dev/null 2>&1 )
+( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step s1 >/dev/null 2>&1 )
+( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step s1 --reason seeded >/dev/null 2>&1 )
+printf '{"hook_event_name":"preToolUse","tool_name":"fs_write","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >/dev/null 2>"$TMP2/e"
+RC=$?
+[ "$RC" -eq 2 ] && ok "no-sid end-to-end: gate denies via synthesized session" || bad "no-sid gate rc=$RC, expected 2"
+rm -rf "$TMP2"
+
+printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]

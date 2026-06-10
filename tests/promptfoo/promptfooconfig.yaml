@@ -47,7 +47,7 @@ tests:
 
   - description: "[rubric] B4 zensu-help Q&A quality"
     vars:
-      q: "/zensu-help Explain the difference between revisions and subfeatures in Zensu."
+      q: "Use the zensu-help skill to explain the difference between revisions and subfeatures in Zensu."
       scenario: b4-help
     assert:
       - type: llm-rubric
@@ -56,7 +56,7 @@ tests:
 
   - description: "[slow] B5 TDD happy path — /zensu-tdd drives RED→IMPL→GREEN on toy-app"
     vars:
-      q: "/zensu-tdd Implement a multiply(a, b) function in src/calc.js of this project, exported alongside add, with a test in test/. Follow the TDD protocol strictly."
+      q: "Run the zensu-tdd skill to implement a multiply(a, b) function in src/calc.js of this project, exported alongside add, with a test in test/. Follow the TDD protocol strictly."
       scenario: b5-tdd
       fixture: toy-app
       timeoutMs: 900000

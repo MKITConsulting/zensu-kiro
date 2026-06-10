@@ -46,6 +46,11 @@ run_witness "$(mk_shell shell "$SID" "make build" 2 "error: boom")"
 grep -q 'cmd="make build"' "$WITNESS" 2>/dev/null && ok "shell alias recorded" || bad "shell alias not recorded"
 grep -q 'exit=2' "$WITNESS" 2>/dev/null && ok "non-zero exit recorded" || bad "non-zero exit missing"
 
+# 2b) LIVE-VERIFIED Kiro response shape: tool_response = {success, result}
+#     (no exit_code/stdout keys) — the tail must come from `result`.
+printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"node --test"},"tool_response":{"success":true,"result":"tests 7 pass 7 fail 0"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+grep -q 'tests 7 pass 7 fail 0' "$WITNESS" 2>/dev/null && ok "Kiro result-key tail recorded" || bad "Kiro result-key tail missing"
+
 # 3) ZENSU_TEST_WITNESS=off silences
 LINES_BEFORE="$(wc -l < "$WITNESS" | tr -d '[:space:]')"
 printf '%s' "$(mk_shell shell "$SID" "echo skip" 0 "skip")" | env -u ZENSU_PLUGIN_ROOT ZENSU_TEST_WITNESS=off bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
