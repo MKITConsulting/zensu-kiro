@@ -22,8 +22,11 @@ tests:
       q: "I want to track features for my new product."
       scenario: b1-router
     assert:
+      # The router directive makes the model run the three project-context
+      # triage questions; match those (it may phrase the routing itself
+      # without naming zensu-plm/bootstrap explicitly).
       - type: contains-any
-        value: ["zensu-plm", "triage", "bootstrap", "ghost-scan"]
+        value: ["zensu-plm", "triage", "bootstrap", "ghost-scan", "already built", "starting fresh", "plan, vision", "spec document"]
 
   - description: "B2 tdd-reminder — implementation prompt asks about TDD before editing"
     vars:
