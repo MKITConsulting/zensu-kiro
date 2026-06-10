@@ -19,7 +19,7 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(mktemp -d)"; TMP2=""; trap 'rm -rf "$TMP" "$TMP2"' EXIT
 unset CLAUDE_PROJECT_DIR CLAUDE_SESSION_ID 2>/dev/null || true
 mkdir -p "$TMP/home"
 export HOME="$TMP/home"
@@ -48,11 +48,21 @@ RC=$?
 GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; CLAUDE_PROJECT_DIR="$TMP" zensu_resolve_session_id "explicit-id")"
 [ "$GOT" = "explicit-id" ] && ok "explicit id wins over current file" || bad "explicit id lost: got '$GOT'"
 
+# 4b) mixed-machine reality: a Claude Code transcript for the SAME project must
+#     NOT outrank the Kiro current-session file — otherwise a concurrently (or
+#     previously) used Claude session detaches the armed Kiro state mid-TDD.
+#     The transcript helper derives its dir from the cwd; plant one for $TMP.
+SAN="$(printf '%s' "$TMP" | sed 's|[^A-Za-z0-9_-]|-|g')"
+mkdir -p "$HOME/.claude/projects/$SAN"
+printf '{"sessionId":"claude-transcript-id"}\n' > "$HOME/.claude/projects/$SAN/claude-transcript-id.jsonl"
+GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" ZENSU_PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" zensu_resolve_session_id "")"
+[ "$GOT" = "$SID" ] && ok "current-session file outranks Claude transcript helper" || bad "transcript helper won: got '$GOT', expected '$SID'"
+
 # 5) LIVE-VERIFIED Kiro reality: hook payloads carry NO session_id at all
 #    (observed keys: hook_event_name, cwd, prompt). capture-sid must then
 #    SYNTHESIZE a session id and still write the current file, so hooks and
 #    model-shell zensu-log calls converge on one state file.
-TMP2="$(mktemp -d)"
+TMP2="$(mktemp -d)"  # cleaned by the EXIT trap
 printf '{"hook_event_name":"agentSpawn","cwd":"%s","prompt":"hi"}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" session-start-capture-sid.sh >/dev/null 2>&1
 CUR="$TMP2/.zensu/state/session-id-current.txt"
 [ -f "$CUR" ] && ok "no-sid payload: current file still written (synthesized)" || bad "no-sid payload: current file missing"
@@ -64,7 +74,7 @@ printf '%s' "$SYN" | grep -qE '^[A-Za-z0-9_-]{8,}$' && ok "synthesized id is san
 printf '{"hook_event_name":"preToolUse","tool_name":"fs_write","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >/dev/null 2>"$TMP2/e"
 RC=$?
 [ "$RC" -eq 2 ] && ok "no-sid end-to-end: gate denies via synthesized session" || bad "no-sid gate rc=$RC, expected 2"
-rm -rf "$TMP2"
+
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

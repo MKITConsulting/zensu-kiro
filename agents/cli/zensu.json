@@ -41,6 +41,7 @@
     "preToolUse": [
       { "matcher": "write", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-edit-tdd-reminder.sh" },
       { "matcher": "fs_write", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-edit-tdd-reminder.sh" },
+      { "matcher": "fsWrite", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-edit-tdd-reminder.sh" },
       { "matcher": "@zensu", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-mcp-zensu-gate.sh" }
     ],
     "postToolUse": [

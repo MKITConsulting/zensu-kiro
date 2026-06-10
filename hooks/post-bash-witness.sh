@@ -65,6 +65,13 @@ fi
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 WITNESS_DIR="$PROJECT_DIR/.zensu/logs"
 WITNESS_LOG="$WITNESS_DIR/witness-${SANITIZED_SESSION}.log"
+# Refuse symlinked targets (same guard class as the rounds counter and stop
+# budget): a malicious repo committing .zensu/logs as a symlink must not be
+# able to redirect hook-written command/output lines to arbitrary paths.
+if [ -L "$WITNESS_DIR" ] || [ -L "$PROJECT_DIR/.zensu" ] || [ -L "$WITNESS_LOG" ]; then
+  echo "zensu witness: refusing symlinked logs target ($WITNESS_DIR) — witness line NOT recorded" >&2
+  exit 0
+fi
 mkdir -p "$WITNESS_DIR" 2>/dev/null || exit 0
 
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib/zensu-config.sh"

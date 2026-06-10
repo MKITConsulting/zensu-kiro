@@ -55,5 +55,22 @@ printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM
 RC=$?
 [ "$RC" -eq 0 ] && ok "unknown script fail-open exit 0" || bad "unknown script: got $RC, expected 0"
 
+# 5) raw branch: a BROKEN wrapped script must fail OPEN (exit 0), never turn
+#    its own crash rc into an accidental preToolUse deny (exit 2 is reserved
+#    for the explicit deny classification) — and its stderr must pass through.
+STUB="$ROOT/hooks/zz-f05-broken-stub.sh"
+trap 'rm -rf "$TMP" "$STUB"' EXIT
+printf '#!/bin/bash\necho "diagnostic noise" >&2\nexit 2\n' > "$STUB"
+chmod +x "$STUB"
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
+RC=$?
+[ "$RC" -eq 0 ] && ok "broken wrapped script fails open (rc 0, not accidental deny)" || bad "broken script rc=$RC (accidental deny!)"
+grep -q "diagnostic noise" "$ERR" && ok "raw branch passes stderr through" || bad "raw branch swallowed stderr"
+printf '#!/bin/bash\nif [ broken-syntax\n' > "$STUB"
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
+RC=$?
+[ "$RC" -eq 0 ] && ok "syntax-error wrapped script fails open (rc 0)" || bad "syntax-error script rc=$RC (accidental deny!)"
+rm -f "$STUB"
+
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -34,12 +34,16 @@ source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-runtime.sh" 2>/dev/null || true
 zensu_runtime_apply_project_dir "$INPUT" 2>/dev/null || true
 
 read_field() {
-  PAYLOAD="$INPUT" FIELD="$1" node -e '
-    try {
-      const j = JSON.parse(process.env.PAYLOAD || "{}");
-      const v = j[process.env.FIELD];
-      process.stdout.write(typeof v === "string" ? v : (typeof v === "boolean" ? String(v) : ""));
-    } catch (_) { process.stdout.write(""); }
+  printf '%s' "$INPUT" | FIELD="$1" node -e '
+    let s = "";
+    process.stdin.on("data", c => s += c);
+    process.stdin.on("end", () => {
+      try {
+        const j = JSON.parse(s || "{}");
+        const v = j[process.env.FIELD];
+        process.stdout.write(typeof v === "string" ? v : (typeof v === "boolean" ? String(v) : ""));
+      } catch (_) { process.stdout.write(""); }
+    });
   ' 2>/dev/null
 }
 
@@ -69,7 +73,7 @@ fi
 BLOCKS=$(wc -c < "$BUDGET_FILE" 2>/dev/null | tr -d '[:space:]')
 case "$BLOCKS" in ''|*[!0-9]*) BLOCKS=1 ;; esac
 if [ "$BLOCKS" -gt "$CAP" ]; then
-  echo "zensu chain-enforcer: review chain did not converge after ${BLOCKS} nudges (cap ${CAP}); allowing stop. Run /zensu:reset-review-limit and re-spawn zensu:code-reviewer to continue, or set ZENSU_CHAIN=off." >&2
+  echo "zensu chain-enforcer: review chain did not converge after ${BLOCKS} nudges (cap ${CAP}); allowing stop. Run /zensu-reset-review-limit and re-spawn zensu-code-reviewer to continue, or set ZENSU_CHAIN=off." >&2
   exit 0
 fi
 

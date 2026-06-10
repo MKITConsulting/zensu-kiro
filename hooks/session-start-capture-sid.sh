@@ -17,11 +17,15 @@ command -v node >/dev/null 2>&1 || exit 0
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-runtime.sh" 2>/dev/null || true
 zensu_runtime_apply_project_dir "$PAYLOAD" 2>/dev/null || true
 
-SID="$(PAYLOAD="$PAYLOAD" node -e '
-  try {
-    const j = JSON.parse(process.env.PAYLOAD || "{}");
-    process.stdout.write((typeof j.session_id === "string" && j.session_id) ? j.session_id : "");
-  } catch (_) {}
+SID="$(printf '%s' "$PAYLOAD" | node -e '
+  let s = "";
+  process.stdin.on("data", c => s += c);
+  process.stdin.on("end", () => {
+    try {
+      const j = JSON.parse(s || "{}");
+      process.stdout.write((typeof j.session_id === "string" && j.session_id) ? j.session_id : "");
+    } catch (_) {}
+  });
 ' 2>/dev/null)"
 
 # Kiro hook payloads carry NO session_id (live-verified: agentSpawn keys are

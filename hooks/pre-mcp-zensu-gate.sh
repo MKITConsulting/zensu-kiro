@@ -19,12 +19,16 @@ command -v node >/dev/null 2>&1 || exit 0
 INPUT="$(cat 2>/dev/null || true)"
 
 field() {
-  PAYLOAD="$INPUT" F="$1" node -e '
-    try {
-      const j = JSON.parse(process.env.PAYLOAD || "{}");
-      const v = j[process.env.F];
-      process.stdout.write(typeof v === "string" ? v : "");
-    } catch (_) { process.stdout.write(""); }
+  printf '%s' "$INPUT" | F="$1" node -e '
+    let s = "";
+    process.stdin.on("data", c => s += c);
+    process.stdin.on("end", () => {
+      try {
+        const j = JSON.parse(s || "{}");
+        const v = j[process.env.F];
+        process.stdout.write(typeof v === "string" ? v : "");
+      } catch (_) { process.stdout.write(""); }
+    });
   ' 2>/dev/null
 }
 

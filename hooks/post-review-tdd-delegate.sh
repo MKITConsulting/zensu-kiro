@@ -27,23 +27,32 @@ INPUT="$(cat)"
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-runtime.sh" 2>/dev/null || true
 zensu_runtime_apply_project_dir "$INPUT" 2>/dev/null || true
 
-# Tolerant reviewer match: walk every string in tool_input and look for the
-# reviewer agent name in either naming scheme (Kiro "zensu-code-reviewer",
-# Claude "zensu:code-reviewer"). Prints "yes"/"no".
+# Reviewer match. Prefer the agent-NAME-bearing fields of the subagent tool
+# input (a free-text prompt of a non-reviewer spawn may legitimately mention
+# "zensu-code-reviewer" — e.g. the five aspect spawns of the fan-out — and must
+# not fire this delegate or burn round budget). Only when no name field exists
+# at all does the tolerant whole-input scan apply. Prints "yes"/"no".
 IS_REVIEWER="$(node -e '
   let s = "";
   process.stdin.on("data", c => s += c);
   process.stdin.on("end", () => {
     try {
       const j = JSON.parse(s);
+      const ti = j.tool_input || {};
+      const re = /zensu[-:]code[-_]?reviewer/i;
+      const nameFields = ["agent", "agent_name", "agentName", "name", "subagent_type", "subagentType"];
+      const names = nameFields.map(k => ti && typeof ti[k] === "string" ? ti[k] : "").filter(Boolean);
+      if (names.length) {
+        console.log(names.some(n => re.test(n)) ? "yes" : "no");
+        return;
+      }
       const strs = [];
       (function walk(v){
         if (typeof v === "string") strs.push(v);
         else if (Array.isArray(v)) v.forEach(walk);
         else if (v && typeof v === "object") Object.values(v).forEach(walk);
-      })(j.tool_input);
-      const hit = strs.some(x => /zensu[-:]code[-_]?reviewer/i.test(x));
-      console.log(hit ? "yes" : "no");
+      })(ti);
+      console.log(strs.some(x => re.test(x)) ? "yes" : "no");
     } catch (_) { console.log("no"); }
   });
 ' <<<"$INPUT" 2>/dev/null)"
@@ -79,40 +88,39 @@ if [ -L "$STATE_DIR" ]; then
   exit 0
 fi
 
-CURRENT="$(node -e '
-  try {
-    const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-    const n = j && j.count;
-    console.log(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-  } catch (_) { console.log("0"); }
-' "$COUNTER_FILE" 2>/dev/null)"
-case "$CURRENT" in
-  ''|*[!0-9]*) CURRENT=0 ;;
-esac
-NEXT=$((CURRENT + 1))
-
-if [ "$(_zensu_log_style)" = "none" ]; then
-  PAYLOAD="$(printf '{"count":%d}' "$NEXT")"
-else
-  PAYLOAD="$(printf '{"count":%d,"ts":"%s"}' "$NEXT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
-fi
-if TMP_FILE="$(mktemp "${STATE_DIR}/rounds-${SESSION_ID}.XXXXXX" 2>/dev/null)"; then
-  if printf '%s\n' "$PAYLOAD" > "$TMP_FILE" \
-     && mv "$TMP_FILE" "$COUNTER_FILE" 2>/dev/null; then
+# Round bump under the shared FSM mutex: the sanctioned fan-out completes five
+# spawns near-simultaneously, so an unlocked read-modify-write would lose
+# increments.
+source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
+_zensu_rounds_bump() {
+  local counter_file="$1" current next payload tmp
+  current="$(node -e '
+    try {
+      const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      const n = j && j.count;
+      console.log(Number.isInteger(n) && n >= 0 ? String(n) : "0");
+    } catch (_) { console.log("0"); }
+  ' "$counter_file" 2>/dev/null)"
+  case "$current" in ''|*[!0-9]*) current=0 ;; esac
+  next=$((current + 1))
+  if [ "$(_zensu_log_style)" = "none" ]; then
+    payload="$(printf '{"count":%d}' "$next")"
+  else
+    payload="$(printf '{"count":%d,"ts":"%s"}' "$next" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  fi
+  if tmp="$(mktemp "${counter_file}.XXXXXX" 2>/dev/null)" \
+     && printf '%s\n' "$payload" > "$tmp" 2>/dev/null \
+     && mv "$tmp" "$counter_file" 2>/dev/null; then
     :
   else
-    rm -f "$TMP_FILE" 2>/dev/null
-    echo "zensu post-review hook: failed to persist counter for session ${SESSION_ID} (write/mv)" >&2
-    if ! printf '%s\n' "$PAYLOAD" > "$COUNTER_FILE" 2>/dev/null; then
-      echo "zensu post-review hook: fallback direct write also failed; counter NOT updated" >&2
-    fi
+    rm -f "${tmp:-}" 2>/dev/null
+    printf '%s\n' "$payload" > "$counter_file" 2>/dev/null \
+      || echo "zensu post-review hook: counter write failed; NOT updated" >&2
   fi
-else
-  echo "zensu post-review hook: mktemp failed under ${STATE_DIR} for session ${SESSION_ID}" >&2
-  if ! printf '%s\n' "$PAYLOAD" > "$COUNTER_FILE" 2>/dev/null; then
-    echo "zensu post-review hook: fallback direct write also failed; counter NOT updated" >&2
-  fi
-fi
+  printf '%s' "$next"
+}
+NEXT="$(_tdd_locked_run "$COUNTER_FILE" _zensu_rounds_bump "$COUNTER_FILE")"
+case "$NEXT" in ''|*[!0-9]*) NEXT=1 ;; esac
 
 COMBINED_SUMMARY_DIRECTIVE=""
 if zensu_combined_summary_enabled; then
@@ -153,7 +161,7 @@ if [ "$NEXT" -gt "$MAX_ROUNDS" ]; then
         additionalContext: msg
       }
     }));
-  ' "$CONV_MSG"
+  ' "$(printf '%b' "$CONV_MSG")"
   echo
   exit 0
 fi
@@ -164,9 +172,8 @@ else
   MSG="STOP. The zensu-code-reviewer subagent above just finished. Classify its findings by severity, then act:\n\n(A) Verdict PASS / zero findings — reply 'No fixes needed: review passed', then ${CLOSE_PASS}\n\n(B) ONLY Suggestions / Minor / Nits (no Critical AND no Important) — do NOT fix. Reply with a status line 'No critical/important findings — suggestions only' followed by the bullet list of Suggestions verbatim under the heading '### Suggestions (not auto-fixed)' so they land in the final report, then ${CLOSE_PASS}\n\n(C) ANY Critical OR Important findings present — fix them YOURSELF IN THIS MAIN THREAD under strict TDD discipline by re-entering the /zensu-tdd workflow (for each finding: RED test, then IMPL, then GREEN; the preToolUse phase-gate is still active in this session). Treat the findings as a feature spec shaped exactly like:\n\nFix the following findings from code review:\n1. <file:line> — <issue description>\n   Fix: <reviewer's fix suggestion>\n2. <file:line> — ...\n   Fix: ...\n\nList ONLY Critical and Important findings. EXCLUDE all Suggestions / Minor / Nits — those are NOT auto-fixed; buffer them in your response under '### Suggestions (deferred, not auto-fixed)' below the status line so the user sees them at the end of the chain. After the fixes are GREEN, your VERY NEXT action must be the subagent tool with agent 'zensu-code-reviewer' to re-verify — the Stop-hook backstop enforces this, so do NOT end your turn first. Do NOT mark the chain done in case C. Do NOT spawn a tdd subagent — TDD now runs in this main thread.\n\nBegin your next message with one of these status lines: 'Fixing critical+important findings in-thread, then re-reviewing' (case C) | 'No critical/important findings — suggestions only' (case B) | 'No fixes needed: review passed' (case A).${TAIL_DIRECTIVE}"
 fi
 
-EXPANDED_MSG="${MSG//\$\{NEXT\}/$NEXT}"
-EXPANDED_MSG="${EXPANDED_MSG//\$\{MAX_ROUNDS\}/$MAX_ROUNDS}"
-
+# %b expands the \n escapes in MSG into real newlines for the model-facing
+# directive (matching the $'...'-quoted summary directive above).
 node -e '
   const msg = process.argv[1];
   process.stdout.write(JSON.stringify({
@@ -175,5 +182,5 @@ node -e '
       additionalContext: msg
     }
   }));
-' "$EXPANDED_MSG"
+' "$(printf '%b' "$MSG")"
 echo

@@ -8,11 +8,14 @@ command -v node >/dev/null 2>&1 || exit 0
 
 INPUT="$(cat)"
 
-PROMPT="$(PAYLOAD="$INPUT" node -e '
-  try {
-    const j = JSON.parse(process.env.PAYLOAD || "{}");
-    process.stdout.write(typeof j.prompt === "string" ? j.prompt : "");
-  } catch (_) { process.stdout.write(""); }
+PROMPT="$(printf '%s' "$INPUT" | node -e '
+  let s = ""; process.stdin.on("data", c => s += c);
+  process.stdin.on("end", () => {
+    try {
+      const j = JSON.parse(s || "{}");
+      process.stdout.write(typeof j.prompt === "string" ? j.prompt : "");
+    } catch (_) { process.stdout.write(""); }
+  });
 ' 2>/dev/null)"
 
 [ -n "$PROMPT" ] || exit 0

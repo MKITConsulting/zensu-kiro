@@ -54,6 +54,7 @@ OUT="$(run_shim user-prompt-intent-router.sh "$(mk_prompt s06-route 'what time i
 printf '%s' "$(mk_prompt s06-nudge 'anything')" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" user-prompt-context-nudge.sh >"$TMP/o" 2>"$TMP/e"
 RC=$?
 [ "$RC" -eq 0 ] && ok "context-nudge exits 0 (fail-safe)" || bad "context-nudge rc $RC"
+[ -s "$TMP/o" ] && bad "context-nudge emitted noise on Kiro payload: $(head -c 120 "$TMP/o")" || ok "context-nudge stays silent (no stdout)"
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -45,6 +45,19 @@ C="$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.argv
 OUT="$(run_hook "$(mk_subagent explorer)")"
 [ -z "$OUT" ] && ok "silent for non-reviewer subagent" || bad "fired for non-reviewer: '$OUT'"
 
+# 3b) name-field precedence: a review-aspect spawn whose PROMPT merely mentions
+#     the consolidating reviewer must NOT fire the delegate (a 5-aspect fan-out
+#     would otherwise burn the whole round budget)
+ASPECT_PAYLOAD="$(printf '{"tool_name":"subagent","session_id":"%s","cwd":"%s","tool_input":{"agent":"zensu-review-aspect","prompt":"Perspective: bugs. After all five aspects finish, the main thread spawns zensu-code-reviewer in consume mode."},"tool_response":{"output":"findings"}}' "$SID" "$TMP")"
+OUT="$(run_hook "$ASPECT_PAYLOAD")"
+[ -z "$OUT" ] && ok "aspect spawn mentioning reviewer in prompt stays silent" || bad "aspect spawn fired the delegate (round budget burn)"
+C_AFTER="$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).count)}catch(_){console.log("?")}' "$COUNTER" 2>/dev/null)"
+[ "$C_AFTER" = "2" ] && ok "aspect spawn did not increment the counter" || bad "counter moved on aspect spawn: $C_AFTER"
+
+# 3c) directive newlines are real (additionalContext must not carry literal \n pairs)
+OUT="$(run_hook "$(mk_subagent zensu-code-reviewer)")"
+printf '%s' "$OUT" | grep -q '\\n' && bad "directive contains literal backslash-n" || ok "directive uses real newlines"
+
 # 4) max-rounds convergence hands off to /zensu-self-review (selfReview default on)
 for i in 3 4 5 6; do OUT="$(run_hook "$(mk_subagent zensu-code-reviewer)")"; done
 printf '%s' "$OUT" | grep -qi "convergence" && ok "max-rounds convergence reached" || bad "no convergence message: '$OUT'"

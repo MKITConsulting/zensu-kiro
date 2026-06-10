@@ -67,7 +67,7 @@ For docs-only PRs (only `*.md` changes), skip multi-cast — go straight to `doc
 - **Always `run_in_background: true`**: otherwise the main thread blocks on the first reviewer.
 - **Always pass `team_name` + `name`**: required for `SendMessage` and `todo` (update item) ownership.
 - **Inject ALL context in the prompt**: the agent starts fresh with no history. Include PR metadata, head SHA, base ref, `$WORKTREE` path, `--context` paths verbatim, `--conversation` text.
-- **Reference the persona template in the prompt**: don't inline the full template — the agent can `Read` `${CLAUDE_PLUGIN_ROOT}/skills/pr-team-review/references/reviewer-personas.md` if it needs the schema.
+- **Reference the persona template in the prompt**: don't inline the full template — the agent can `Read` `${CLAUDE_PLUGIN_ROOT}/skills/zensu-pr-team-review/references/reviewer-personas.md` if it needs the schema.
 
 ## Phase C — Debate Strategy
 

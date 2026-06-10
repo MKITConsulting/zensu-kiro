@@ -3,21 +3,6 @@ name: zensu-pr-team-review
 description: Orchestrate a multi-agent GitHub PR review — scout the PR, cast a tailored reviewer team from a 14-persona pool, run the reviewers as parallel read-only subagents, debate and synthesize their findings, and publish one consolidated GitHub review with inline comments via gh api. Use when the user asks for a team review or multi-agent PR review, or shares a GitHub PR URL asking for review.
 ---
 
----
-name: pr-team-review
-description: >
-  Orchestrate a multi-agent PR review on GitHub: scout the PR, auto-cast a tailored
-  reviewer team from a 14-persona pool (DDD strategic/tactical, backend, persistence,
-  security, REST API, tests, domain refiner, frontend component/UX, IaC, CI/CD,
-  performance, docs), spawn them in parallel, run a debate + synthesis phase, and
-  publish one consolidated GitHub review with inline comments + overall body via
-  `gh api`. Use whenever the user wants a comprehensive multi-perspective PR review:
-  triggers include "team review", "multi-agent PR review", "horde review",
-  "agent-team review", "reviewer consensus", "PR debate", "publish team feedback
-  to GitHub", a shared GitHub PR URL with the word "review", or the slash command
-  /zensu-pr-team-review. Skill drives the workflow end-to-end and posts the result.
----
-
 # /zensu-pr-team-review
 
 Multi-agent PR review orchestrator. Scouts the PR, auto-casts a tailored reviewer team, runs reviews in parallel, debates, synthesises, publishes a single consolidated GitHub review.

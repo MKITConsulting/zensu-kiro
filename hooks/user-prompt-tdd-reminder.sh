@@ -21,20 +21,26 @@ command -v node >/dev/null 2>&1 || exit 0
 
 INPUT="$(cat)"
 
-PROMPT="$(PAYLOAD="$INPUT" node -e '
-  try {
-    const j = JSON.parse(process.env.PAYLOAD || "{}");
-    process.stdout.write(typeof j.prompt === "string" ? j.prompt : "");
-  } catch (_) { process.stdout.write(""); }
+PROMPT="$(printf '%s' "$INPUT" | node -e '
+  let s = ""; process.stdin.on("data", c => s += c);
+  process.stdin.on("end", () => {
+    try {
+      const j = JSON.parse(s || "{}");
+      process.stdout.write(typeof j.prompt === "string" ? j.prompt : "");
+    } catch (_) { process.stdout.write(""); }
+  });
 ' 2>/dev/null)"
 
 [ -n "$PROMPT" ] || exit 0
 
-SESSION_ID="$(PAYLOAD="$INPUT" node -e '
-  try {
-    const j = JSON.parse(process.env.PAYLOAD || "{}");
-    process.stdout.write(typeof j.session_id === "string" ? j.session_id : "");
-  } catch (_) { process.stdout.write(""); }
+SESSION_ID="$(printf '%s' "$INPUT" | node -e '
+  let s = ""; process.stdin.on("data", c => s += c);
+  process.stdin.on("end", () => {
+    try {
+      const j = JSON.parse(s || "{}");
+      process.stdout.write(typeof j.session_id === "string" ? j.session_id : "");
+    } catch (_) { process.stdout.write(""); }
+  });
 ' 2>/dev/null)"
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-session.sh"
 SESSION_ID="$(zensu_resolve_session_id "$SESSION_ID")"

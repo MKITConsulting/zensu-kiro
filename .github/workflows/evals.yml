@@ -1,7 +1,7 @@
 name: Live evals (promptfoo x kiro-cli)
 
 # Manual-dispatch only — drives a REAL kiro-cli and costs credits. Never part
-# of the deterministic CI gate. Requires the KIRO_API_KEY secret (headless
+# of the deterministic CI gate. Requires the KIRO_API_KEY + KIRO_INSTALLER_SHA256 secrets (headless
 # auth); ANTHROPIC_API_KEY optionally enables the [rubric] tests.
 # If headless auth proves restricted for your account tier, run the suites
 # locally instead: bash tests/run-promptfoo.sh diagnostics|behavior
@@ -33,10 +33,18 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install kiro-cli
+      - name: Install kiro-cli (checksum-gated)
+        env:
+          KIRO_INSTALLER_SHA256: ${{ secrets.KIRO_INSTALLER_SHA256 }}
         run: |
           set -euo pipefail
-          curl -fsSL https://kiro.dev/install.sh | bash
+          if [ -z "${KIRO_INSTALLER_SHA256:-}" ]; then
+            echo "::error::KIRO_INSTALLER_SHA256 secret not set — refusing to pipe an unverified installer into a job that holds KIRO_API_KEY/ANTHROPIC_API_KEY. Record the current sha256 of https://kiro.dev/install.sh as a repo secret (re-pin on Kiro releases), or run the suites locally via tests/run-promptfoo.sh."
+            exit 1
+          fi
+          curl -fsSL -o /tmp/kiro-install.sh https://kiro.dev/install.sh
+          echo "${KIRO_INSTALLER_SHA256}  /tmp/kiro-install.sh" | sha256sum -c -
+          bash /tmp/kiro-install.sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run suite
@@ -44,6 +52,7 @@ jobs:
           KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           RUN_SLOW: ${{ inputs.run_slow && '1' || '0' }}
+          PROMPTFOO_VERSION: 0.121.12
         run: bash tests/run-promptfoo.sh "${{ inputs.suite }}"
 
       - name: Upload results

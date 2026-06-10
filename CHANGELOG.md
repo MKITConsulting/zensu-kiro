@@ -30,7 +30,7 @@ engine-adaptation patterns from the zensu-codex port).
 - `install.sh` (manifest-hash idempotency, mcp.json merge, `__ZENSU_HOME__`
   rendering, opt-in default agent, uninstall) + `install.ps1` wrapper.
 - `POWER.md` + steering files — installable as a Kiro IDE Power.
-- Deterministic test suite (`tests/run-all.sh`, 16 structure suites) and the
+- Deterministic test suite (`tests/run-all.sh`; one structure suite per `tests/structure/test-*.sh`) and the
   promptfoo live-eval layer (`diagnostics.yaml` risk suite D1–D6,
   `promptfooconfig.yaml` behavior suite B1–B6, sandboxed `kiro-cli.mjs`
   provider with `KIRO_HOME` isolation).

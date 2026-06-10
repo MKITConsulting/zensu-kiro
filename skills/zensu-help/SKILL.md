@@ -1,11 +1,11 @@
 ---
 name: zensu-help
-description: Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the Zensu Codex plugin itself work — an in-conversation glossary, architecture explainer, and config reference. Use for "what is X / how does Y work / where is Z configured" questions about Zensu concepts or plugin internals; does NOT execute workflows.
+description: Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the zensu-kiro plugin itself work — an in-conversation glossary, architecture explainer, and config reference. Use for "what is X / how does Y work / where is Z configured" questions about Zensu concepts or plugin internals; does NOT execute workflows.
 ---
 
-# /zensu-zensu-help
+# /zensu-help
 
-Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the Zensu Claude Code plugin itself work. Acts as an in-conversation glossary, architecture explainer, and config reference — does NOT execute workflows.
+Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the zensu-kiro plugin itself work. Acts as an in-conversation glossary, architecture explainer, and config reference — does NOT execute workflows.
 
 ## When to Use
 
@@ -55,24 +55,23 @@ Before answering questions in the right column, `Read` the source file in the le
 
 | Question type | Source to Read |
 |---|---|
-| Plugin version, declared skills/agents | `.claude-plugin/plugin.json` |
-| MCP server URL, MCP tool surface | `.mcp.json` + `.claude-plugin/plugin.json` |
-| Hook flags (`autoTdd`, `chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`) | `README.md` § Configuration → Hook Opt-Out table |
-| Context-nudge settings (`context.compactionNudge`, `context.nudgeThreshold`, `context.windowSize`) — top-level `context` node, gate the `/compact` proposal | `README.md` § Configuration → Hook Opt-Out table + `hooks/user-prompt-context-nudge.sh` |
-| Config resolution order, `ZENSU_CONFIG` precedence | `README.md` § Config Resolution Order |
-| Environment variables (`ZENSU_API_KEY`, `ZENSU_TDD_GATE`, `ZENSU_TEST_WITNESS`, `ZENSU_CHAIN`, `CLAUDE_AGENT_TYPE`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`) | `README.md` § Environment Variables |
-| TDD FSM details, phase transitions, gate logic, three-channel logging | `docs/tdd-manager-workflow.md` |
+| Plugin version | `VERSION` + `POWER.md` (frontmatter `metadata.version`) |
+| Declared skills/agents/hooks wiring | `agents/cli/zensu.json` (hooks live inside the agent config) + `skills/` dirs |
+| MCP server URL, MCP tool surface | `mcp.json` + `hooks/lib/zensu-mcp-tools.sh` (read/mutation classification) |
+| Hook flags (`chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`, `tddReminder`, `intentRouter`, `mcpGate`, `selfReview`) | `README.md` § Configuration + `config.example.json` |
+| Context-nudge settings (`context.*`) | `config.example.json` + `hooks/user-prompt-context-nudge.sh` (inert on Kiro — see README fidelity matrix) |
+| Config resolution order, `ZENSU_CONFIG` precedence | `hooks/lib/zensu-config.sh` (header comment) |
+| Environment variables (`ZENSU_API_KEY`, `ZENSU_TDD_GATE`, `ZENSU_TEST_WITNESS`, `ZENSU_CHAIN`, `ZENSU_MCP_GATE`, `KIRO_API_KEY`) | `README.md` § Configuration + § Headless |
+| TDD FSM details, phase transitions, gate logic, three-channel logging | `docs/tdd-manager-workflow.md` + `steering/zensu-tdd-protocol.md` |
 | Documentation: doc types, how to write code-grounded feature/wiki docs | `docs/documentation-guide.md` |
-| Hook scripts (what each does, when it fires) | `README.md` § Hooks (10) table + `hooks/<script>.sh` source |
-| Data flow, what's transmitted, retention, self-hosting | `README.md` § Data & Privacy |
-| Pulse session lifecycle, idempotency, privacy guarantees | `skills/pulse/SKILL.md` + `README.md` § Data & Privacy |
-| Resetting the auto-fix rounds counter / "max rounds reached" recovery | `skills/reset-review-limit/SKILL.md` + `hooks/post-review-tdd-delegate.sh:100-101` (convergence branch) |
-| Workflow step order (new product / existing codebase / quick feature) | `README.md` § Typical Workflows |
-| Greenfield vs brownfield vs hybrid; feature build-out stages (revisions) & fan-out | Core Glossary (above) + `agents/zensu-plm.md` § Decision Rules + `README.md` § Typical Workflows |
+| Hook scripts (what each does, when it fires) | `README.md` § What you get (Hooks row) + `hooks/<script>.sh` source |
+| Pulse session lifecycle | `skills/zensu-pulse/SKILL.md` |
+| Resetting the auto-fix rounds counter / "max rounds reached" recovery | `skills/zensu-reset-review-limit/SKILL.md` + `hooks/post-review-tdd-delegate.sh` (convergence branch) |
+| Greenfield vs brownfield vs hybrid; feature build-out stages (revisions) & fan-out | Core Glossary (above) + `agents/prompts/zensu-plm.md` § Decision Rules |
 | "What changed in version X" | `CHANGELOG.md` (search for `[X.Y.Z]`) |
 | License / Permitted Purpose / Competing Use | `README.md` § License + `LICENSE` file |
-| Platform support, Windows caveats | `README.md` § Platform Support |
-| Troubleshooting (MCP unreachable, OAuth, gate blocking) | `README.md` § Troubleshooting |
+| Platform support, Windows caveats | `README.md` § Windows |
+| IDE vs CLI capability differences | `README.md` § Claude Code → Kiro fidelity matrix + `POWER.md` fidelity note |
 
 ## Response Style
 

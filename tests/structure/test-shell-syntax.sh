@@ -23,5 +23,14 @@ for f in "$ROOT/install.sh" "$ROOT/hooks/kiro/kiro-shim.sh" "$ROOT/tests/run-all
   [ -x "$f" ] && ok "executable: $rel" || bad "not executable: $rel"
 done
 
+# bash 3.2 (stock macOS): expanding an EMPTY array under set -u aborts with
+# "unbound variable" — every array expansion in entry scripts must use the
+# ${arr[@]+"${arr[@]}"} guard form.
+if grep -q 'FILTER_ARGS\[@\]+' "$ROOT/tests/run-promptfoo.sh"; then
+  ok "run-promptfoo.sh guards empty-array expansion (bash 3.2 safe)"
+else
+  bad "run-promptfoo.sh expands FILTER_ARGS unguarded (aborts on macOS bash 3.2 when no filters apply)"
+fi
+
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

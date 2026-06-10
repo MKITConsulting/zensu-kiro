@@ -18,7 +18,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TDD_STATE_DIR="$TMP/state"
 export ZENSU_PLUGIN_ROOT="$ROOT"
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
-mkdir -p "$TDD_STATE_DIR"
+mkdir -p "$TMP/home" "$TDD_STATE_DIR"
+export HOME="$TMP/home"   # isolate ~/.zensu lookups
 SID="s03-kiro-gate"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 GATE="$ROOT/hooks/pre-edit-tdd-reminder.sh"
@@ -53,6 +54,12 @@ expect "RED_FAIL, shell tool"     ALLOW "$(run_gate "$(mk_kiro_write "$SID" shel
 expect "RED_FAIL, fs_read tool"   ALLOW "$(run_gate "$(mk_kiro_write "$SID" fs_read src/app.js)")"
 # 2c) Claude-style Edit still denied (cross-engine regression guard)
 expect "RED_FAIL, Edit prod (Claude)" DENY "$(run_gate "$(mk_claude_edit "$SID" src/app.js)")"
+# 2d) file CONTENT containing an apply_patch envelope must not inject phantom
+#     paths: a legitimate TEST-file write whose body documents a patch touching
+#     a production path stays ALLOWED (the envelope scan applies to apply_patch
+#     payloads, not to explicit-path write payloads)
+ENVELOPE_PAYLOAD="$(printf '{"tool_name":"fs_write","session_id":"%s","cwd":"%s","tool_input":{"command":"create","path":"src/app.test.js","file_text":"fixture: *** Begin Patch\\n*** Update File: src/app.js\\n+x\\n*** End Patch"}}' "$SID" "$TMP")"
+expect "RED_FAIL, test write with envelope-looking content" ALLOW "$(run_gate "$ENVELOPE_PAYLOAD")"
 
 bash "$LOG" --phase IMPL --step s1 --session "$SID" >/dev/null 2>&1
 # 3) IMPL after RED_FAIL: prod allowed

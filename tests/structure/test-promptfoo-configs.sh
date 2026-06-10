@@ -16,6 +16,9 @@ command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
 for f in "$PF/diagnostics.yaml" "$PF/promptfooconfig.yaml"; do
   [ -f "$f" ] && ok "$(basename "$f") exists" || { bad "$(basename "$f") missing"; continue; }
+  for key in prompts: providers: tests:; do
+    grep -q "^$key" "$f" && ok "$(basename "$f") has top-level $key" || bad "$(basename "$f") missing top-level $key"
+  done
   # every file:// reference must resolve relative to tests/promptfoo/
   while IFS= read -r ref; do
     rel="${ref#file://}"

@@ -1,22 +1,12 @@
 #!/bin/bash
-# NOT WIRED ON CODEX. Codex CLI has no ExitPlanMode tool / plan-approval event,
-# so this hook is not registered in hooks/hooks.json. Its behavior (ask whether
-# to run the strict TDD flow before implementing code) lives in AGENTS.md and the
-# session-start primer for the Codex port. Kept here for reference and Claude Code
-# compatibility.
-#
-# PostToolUse hook fired when ExitPlanMode succeeds (= user approved plan).
-# Returns JSON via stdout that Claude Code injects as additionalContext
-# next to the tool result. By default (autoTdd enabled) the directive tells
-# the main agent to ASK the user — via the AskUserQuestion tool — whether to
-# run the strict /zensu:tdd flow for this plan, then act on the answer IN THE
-# MAIN THREAD (no subagent): run /zensu:tdd on yes, implement directly on no.
-# Fast-paths skip the question — doc-only plans, an explicit TDD preference
-# already stated in the approval message, and non-interactive Auto Mode
-# (which defaults to /zensu:tdd because there is no human to answer).
-#
-# This is a command-type hook (not prompt-type) so the directive reaches
-# the main agent verbatim instead of being summarized by a judge LLM.
+# NOT WIRED ON KIRO — kept for upstream comparison only. Kiro has no
+# plan-approval event (Claude Code's ExitPlanMode PostToolUse does not exist
+# here), so this hook is not registered in agents/cli/zensu.json and install.sh
+# deliberately does not ship it to the runtime home. Its job — asking the user
+# whether to run the strict TDD flow when a plan turns into code — is covered
+# on Kiro by the per-turn userPromptSubmit reminder (user-prompt-tdd-reminder.sh)
+# plus steering/zensu-conventions.md (see README fidelity matrix: DEGRADED by
+# design). The body below is the upstream Claude Code implementation, unchanged.
 
 set -u
 

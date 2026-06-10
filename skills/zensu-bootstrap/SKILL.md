@@ -35,7 +35,7 @@ Execute these phases in order. Present results to the user after each phase and 
 
 1. Ask the user for their product name, slug, type (public_product|internal_product|hybrid), and the vision/plan document content
 2. Use `create_product` to create the product with name, slug, and product_type
-3. Use `create_product_vision` with the product_id and the user's plan document as content (set source to "claude-code")
+3. Use `create_product_vision` with the product_id and the user's plan document as content (set source to "kiro")
 4. Save the returned product_id and vision_id for subsequent steps
 
 ### Phase 2: Feature Extraction & Bootstrap

@@ -12,10 +12,7 @@ export default (output, context) => {
   const rel = String(vars.file || "src/calc.js");
   const fixture = String(vars.fixture || "toy-app");
 
-  const metaPath = join(PF_ROOT, ".artifacts", label, "meta.json");
-  if (!existsSync(metaPath)) return { pass: false, score: 0, reason: `no meta.json for ${label}` };
-  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-  const sandboxFile = join(meta.cwd, rel);
+  const sandboxFile = join(PF_ROOT, ".artifacts", label, "project", rel);
   const originalFile = join(PF_ROOT, "scenarios", "fixtures", fixture, rel);
   if (!existsSync(originalFile)) return { pass: false, score: 0, reason: `fixture original missing: ${originalFile}` };
   if (!existsSync(sandboxFile)) return { pass: false, score: 0, reason: `sandbox file missing: ${sandboxFile}` };

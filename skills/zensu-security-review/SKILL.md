@@ -101,7 +101,7 @@ For each recommended and implemented security test, use `add_security_test` with
 
 Use `complete_security_review` with:
 - `feature_id` (required)
-- `reviewer` (required): Reviewer identifier (e.g. "claude-code" or username)
+- `reviewer` (required): Reviewer identifier (e.g. "kiro" or username)
 - `review_status` (required): approved | rejected | conditional
 - `review_type` (optional): manual | automated | external (default: manual)
 - `findings` (optional): Review findings summary

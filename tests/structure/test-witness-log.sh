@@ -51,6 +51,22 @@ grep -q 'exit=2' "$WITNESS" 2>/dev/null && ok "non-zero exit recorded" || bad "n
 printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"node --test"},"tool_response":{"success":true,"result":"tests 7 pass 7 fail 0"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
 grep -q 'tests 7 pass 7 fail 0' "$WITNESS" 2>/dev/null && ok "Kiro result-key tail recorded" || bad "Kiro result-key tail missing"
 
+# 2c) interrupted flag + 200-char tail truncation
+LONG="$(printf 'A%.0s' $(seq 1 300))"
+printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"long run"},"tool_response":{"exit_code":1,"stdout":"%s","interrupted":true}}' "$SID" "$TMP" "$LONG" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+grep -q 'interrupted=true' "$WITNESS" 2>/dev/null && ok "interrupted=true recorded" || bad "interrupted=true missing"
+TAIL_LEN="$(grep 'cmd="long run"' "$WITNESS" | sed -n 's/.*tail="\([^"]*\)".*/\1/p' | head -1 | wc -c | tr -d '[:space:]')"
+[ "${TAIL_LEN:-999}" -le 210 ] && ok "tail truncated to <=200 chars (len=$TAIL_LEN)" || bad "tail not truncated (len=$TAIL_LEN)"
+
+# 2d) symlinked logs dir must be refused (no witness write through symlinks —
+#     same guard class as the rounds counter and stop budget)
+SLY="$TMP/sly"; REALDIR="$TMP/elsewhere"
+mkdir -p "$SLY" "$REALDIR"
+mkdir -p "$SLY/.zensu"
+ln -s "$REALDIR" "$SLY/.zensu/logs"
+printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"sneaky"},"tool_response":{"exit_code":0,"stdout":"x"}}' "$SID" "$SLY" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+grep -rq 'sneaky' "$REALDIR" 2>/dev/null && bad "witness wrote through symlinked logs dir" || ok "witness refuses symlinked logs dir"
+
 # 3) ZENSU_TEST_WITNESS=off silences
 LINES_BEFORE="$(wc -l < "$WITNESS" | tr -d '[:space:]')"
 printf '%s' "$(mk_shell shell "$SID" "echo skip" 0 "skip")" | env -u ZENSU_PLUGIN_ROOT ZENSU_TEST_WITNESS=off bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1

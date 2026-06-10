@@ -32,6 +32,7 @@ run_suite() {
     PASS=$((PASS+1)); log "  PASS  $label"
   else
     FAIL=$((FAIL+1)); log "  FAIL  $label (exit $rc)"
+    printf '%s\n' "$out" | sed 's/^/      /'
   fi
 }
 

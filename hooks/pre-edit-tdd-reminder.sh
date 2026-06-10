@@ -30,9 +30,13 @@ zensu_runtime_apply_project_dir "$PAYLOAD" 2>/dev/null || true
 # - Edit/Write/MultiEdit: tool_input.file_path
 # - apply_patch (freeform): scan every string in tool_input for the patch
 #   envelope and pull each `*** Update/Add/Delete File:` (+ `*** Move to:`) path.
-EXTRACT="$(PAYLOAD_BODY="$PAYLOAD" node -e '
+EXTRACT="$(printf '%s' "$PAYLOAD" | node -e '
+  let s = "";
+  process.stdin.on("data", c => s += c);
+  process.stdin.on("end", () => { run(s); });
+  function run(body) {
   try {
-    const j = JSON.parse(process.env.PAYLOAD_BODY || "{}");
+    const j = JSON.parse(body || "{}");
     const toolName = typeof j.tool_name === "string" ? j.tool_name : "";
     const sid = typeof j.session_id === "string" ? j.session_id : "";
     const ti = j.tool_input;
@@ -43,21 +47,29 @@ EXTRACT="$(PAYLOAD_BODY="$PAYLOAD" node -e '
     if (ti && typeof ti === "object" && typeof ti.path === "string" && ti.path) {
       files.push(ti.path);
     }
-    const strs = [];
-    (function walk(v){
-      if (typeof v === "string") strs.push(v);
-      else if (Array.isArray(v)) v.forEach(walk);
-      else if (v && typeof v === "object") Object.values(v).forEach(walk);
-    })(ti);
-    const patch = strs.find(s => s.indexOf("*** Begin Patch") !== -1) || strs.join("\n");
-    let m;
-    const reFile = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+?)\s*$/gm;
-    while ((m = reFile.exec(patch)) !== null) files.push(m[1]);
-    const reMove = /^\*\*\*\s+Move to:\s+(.+?)\s*$/gm;
-    while ((m = reMove.exec(patch)) !== null) files.push(m[1]);
+    // The patch-envelope scan exists for the Codex apply_patch tool, whose
+    // target files only appear inside the envelope text. Run it ONLY when the
+    // tool is apply_patch or when no explicit path field was found — write
+    // payloads may legitimately CONTAIN envelope-looking text in file_text
+    // (fixtures, docs), and that content must not inject phantom paths.
+    if (toolName === "apply_patch" || files.length === 0) {
+      const strs = [];
+      (function walk(v){
+        if (typeof v === "string") strs.push(v);
+        else if (Array.isArray(v)) v.forEach(walk);
+        else if (v && typeof v === "object") Object.values(v).forEach(walk);
+      })(ti);
+      const patch = strs.find(s => s.indexOf("*** Begin Patch") !== -1) || strs.join("\n");
+      let m;
+      const reFile = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+?)\s*$/gm;
+      while ((m = reFile.exec(patch)) !== null) files.push(m[1]);
+      const reMove = /^\*\*\*\s+Move to:\s+(.+?)\s*$/gm;
+      while ((m = reMove.exec(patch)) !== null) files.push(m[1]);
+    }
     const uniq = [...new Set(files.filter(Boolean))];
     process.stdout.write(toolName + "\n" + sid + "\n" + uniq.join("\n"));
   } catch (_) { process.stdout.write("\n\n"); }
+  }
 ' 2>/dev/null)"
 
 TOOL_NAME="$(printf '%s' "$EXTRACT" | sed -n '1p')"
@@ -115,7 +127,8 @@ decide_allow_file() {
   esac
 }
 
-# Evaluate every touched file. .zensu/ and parent-relative paths are exempt.
+# Evaluate every touched file. .zensu/ paths are exempt — but any path
+# containing '..' is deliberately NOT (a '.zensu/../prod.c' bypass must gate).
 # Deny the whole patch if ANY file fails its phase rule (name the first such file).
 DENIED_FILE=""
 if [ -z "$FILES" ]; then

@@ -21,7 +21,7 @@ zensu_runtime_apply_project_dir() {
   [ -z "$payload" ] && return 0
   command -v node >/dev/null 2>&1 || return 0
   local cwd
-  cwd="$(PAYLOAD="$payload" node -e 'try{const j=JSON.parse(process.env.PAYLOAD||"{}");const c=(typeof j.cwd==="string"&&j.cwd)?j.cwd:"";process.stdout.write(c);}catch(_){}' 2>/dev/null)"
+  cwd="$(printf '%s' "$payload" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(s||"{}");const c=(typeof j.cwd==="string"&&j.cwd)?j.cwd:"";process.stdout.write(c);}catch(_){}});' 2>/dev/null)"
   if [ -n "$cwd" ] && [ -d "$cwd" ]; then
     export CLAUDE_PROJECT_DIR="$cwd"
   fi

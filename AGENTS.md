@@ -3,8 +3,11 @@
 ## Language
 
 **English only.** All code, comments, docs, commit messages, prompts, fixture
-content, and pattern alternations must be in English. Runtime `.zensu/` artifacts
-are local-only (gitignored) and exempt.
+content, and pattern alternations must be in English. Exemptions: runtime
+`.zensu/` artifacts (local-only, gitignored), the German-token detection lists
+in `hooks/user-prompt-tdd-reminder.sh` (mirrors upstream's multilingual
+user-preference matching verbatim), and the guard's own word list in
+`tests/structure/test-english-only.sh`.
 
 ## What this repo is
 
@@ -19,26 +22,58 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
 
 ## Architecture invariants
 
-- `hooks/kiro/kiro-shim.sh` is the ONLY engine-translation layer. Hook scripts
-  stay byte-comparable to upstream (Claude output schemas); the shim translates
-  deny-JSON to exit 2 + stderr, passes Stop `{"decision":"block"}` through, and
-  unwraps `additionalContext` to plain stdout. Never fork engine logic into the
-  individual hook scripts.
+- `hooks/kiro/kiro-shim.sh` is the only OUTPUT-translation layer: it turns the
+  engine-neutral hook outputs into Kiro semantics (deny-JSON to exit 2 + stderr,
+  Stop `{"decision":"block"}` passthrough, `additionalContext` to plain stdout)
+  and never makes policy decisions itself. INPUT-side Kiro awareness lives in
+  the hook scripts as enumerated deltas — re-syncing a hook from upstream
+  without re-applying its delta strips Kiro support (the structure tests catch
+  it). Hook-level deltas vs upstream:
+  - `pre-edit-tdd-reminder.sh` — accepts `write`/`fs_write`/`fsWrite`, extracts
+    `tool_input.path`, envelope scan only for `apply_patch`/pathless payloads
+    (pinned by `test-gate-kiro-payloads.sh`).
+  - `pre-mcp-zensu-gate.sh` — `@zensu/`/`zensu___`/`zensu__`/legacy strip chain,
+    foreign tools pass (pinned by `test-mcp-gate-kiro-names.sh`).
+  - `session-start-capture-sid.sh` — synthesizes a session id when the payload
+    carries none and persists `session-id-current.txt` (pinned by
+    `test-session-resolution.sh`).
+  - `post-review-tdd-delegate.sh` — name-field-first reviewer match for the
+    `subagent`/`use_subagent` tool, locked round bump (pinned by
+    `test-post-review-delegate.sh`).
+  - `post-bash-witness.sh` — reads `tool_response.result`, refuses symlinked
+    log targets (pinned by `test-witness-log.sh`).
+  - All payload extraction streams via stdin (never env vars — execve limits
+    would silently disarm the gates on large payloads; pinned by
+    `test-large-payload.sh`).
+  Load-bearing host assumption: Kiro hook matchers are EXACT tool-name matches;
+  the delegate is intentionally wired under both `subagent` and `use_subagent`
+  and the gate under `write`/`fs_write`/`fsWrite` — a host matching aliases
+  transitively would double-fire (the round counter is mutex-locked, but budget
+  would count double; re-verify via the diagnostics suite on Kiro upgrades).
 - `hooks/lib/*.sh` are verbatim upstream copies (plus `zensu-runtime.sh`).
-  Fix bugs upstream first, then re-sync. **Documented delta** (upstream-sync
-  candidate): `zensu-session.sh` consults the project-scoped
-  `.zensu/state/session-id-current.txt` (written by
-  `session-start-capture-sid.sh`) as the last step before the PPID fallback —
-  on Kiro, model-shell processes carry no session env and a different
-  ancestry, so without it skill-run `zensu-log.sh` calls arm a different
-  state file than the hooks read (live-verified via the promptfoo
-  diagnostics suite; pinned by `tests/structure/test-session-resolution.sh`).
+  Fix bugs upstream first, then re-sync. **Documented lib deltas** (upstream-sync
+  candidates, each pinned by a structure test):
+  - `zensu-session.sh` — consults the project-scoped
+    `.zensu/state/session-id-current.txt` (written by
+    `session-start-capture-sid.sh`) directly after an explicit id and BEFORE
+    the Claude-transcript helper: Kiro payloads carry no session id and
+    model-shell processes have foreign ancestry, and on mixed machines the
+    transcript helper would return live-changing Claude ids
+    (`test-session-resolution.sh`).
+  - `zensu-log.sh` — `--tdd-begin` clears the previous chain's terminal flags
+    (`implComplete`/`chainDone`/`codeReviewDone`/`selfReviewFixed`) and deletes
+    the `.stopblocks` budget, so a second TDD chain in the same session re-arms
+    the Stop backstop (`test-kiro-shim-stop.sh`).
 - Hooks are wired in `agents/cli/zensu.json` (Kiro hooks live inside agent
   configs). `agents/cli/zensu-plm.json` intentionally has NO `@zensu` write-gate
   hook — that is the per-agent replacement for upstream's `agent_type` exemption.
 - Agent prompt bodies live ONCE in `agents/prompts/*.md`; the IDE variants in
   `agents/ide/*.md` must keep identical bodies (pinned by
   `tests/structure/test-agent-prompt-sync.sh`).
+- Convention wording is mirrored on three surfaces — CANONICAL source is
+  `steering/zensu-conventions.md`; `agents/prompts/zensu-orchestrator.md`
+  (CLI system prompt) and the POWER.md steering section are derived mirrors.
+  Update order: steering first, then the two mirrors in the same commit.
 
 ## Version bumps
 

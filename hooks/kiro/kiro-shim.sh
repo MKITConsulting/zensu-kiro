@@ -33,14 +33,17 @@ command -v node >/dev/null 2>&1 || exit 0
 
 PAYLOAD="$(cat 2>/dev/null || true)"
 
-OUT_FILE="$(mktemp 2>/dev/null || printf '/tmp/zensu-shim-%s' "$$")"
-ERR_FILE="${OUT_FILE}.err"
+# Private capture dir (no predictable /tmp names, no symlink-followable
+# pre-planted siblings — the shim runs on every tool call).
+CAP_DIR="$(mktemp -d 2>/dev/null)" || exit 0
+OUT_FILE="$CAP_DIR/out"
+ERR_FILE="$CAP_DIR/err"
 printf '%s' "$PAYLOAD" | bash "$SCRIPT" >"$OUT_FILE" 2>"$ERR_FILE"
 SCRIPT_RC=$?
 
 OUT="$(cat "$OUT_FILE" 2>/dev/null || true)"
 ERR="$(cat "$ERR_FILE" 2>/dev/null || true)"
-rm -f "$OUT_FILE" "$ERR_FILE" 2>/dev/null || true
+rm -rf "$CAP_DIR" 2>/dev/null || true
 
 # Classify the wrapped script's stdout: DENY / CONTEXT / other.
 # Prints "deny\n<reason>" or "context\n<text>" or "raw".
@@ -79,8 +82,12 @@ case "$KIND" in
     exit 0
     ;;
   *)
+    # Fail-open raw branch: pass output through but NEVER surface the wrapped
+    # script's own exit code — a crashed/corrupted hook (rc 2 from a bash
+    # syntax error!) must not turn into an accidental preToolUse deny. Exit 2
+    # is reserved exclusively for the explicit deny classification above.
     [ -n "$OUT" ] && printf '%s\n' "$OUT"
     [ -n "$ERR" ] && printf '%s\n' "$ERR" >&2
-    exit "$SCRIPT_RC"
+    exit 0
     ;;
 esac

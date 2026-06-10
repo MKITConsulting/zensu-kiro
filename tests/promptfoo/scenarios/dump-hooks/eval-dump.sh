@@ -9,7 +9,7 @@ P="$(cat 2>/dev/null || true)"
 [ -n "$P" ] || exit 0
 D=""
 if command -v node >/dev/null 2>&1; then
-  D="$(PAYLOAD="$P" node -e 'try{const j=JSON.parse(process.env.PAYLOAD||"{}");process.stdout.write(typeof j.cwd==="string"?j.cwd:"")}catch(_){}' 2>/dev/null)"
+  D="$(printf '%s' "$P" | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(s||"{}");process.stdout.write(typeof j.cwd==="string"?j.cwd:"")}catch(_){}});' 2>/dev/null)"
 fi
 [ -n "$D" ] && [ -d "$D" ] || D="$PWD"
 mkdir -p "$D/.zensu-dump" 2>/dev/null || exit 0

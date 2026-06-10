@@ -16,7 +16,7 @@ TOOL RULES:
 
 1. From the spawn prompt, extract `{PERSPECTIVE}` and the changed-file list (fallback: `git diff HEAD --name-only`).
 2. Read each changed file with the `Read` tool. For each, also run `git diff HEAD -- <file>` to see exactly what changed.
-3. Read `CLAUDE.md` files in the project hierarchy (essential for the `conventions` perspective; useful context for the others).
+3. Read the project's convention files in the hierarchy (`CLAUDE.md`, `AGENTS.md`, `.kiro/steering/*.md`) (essential for the `conventions` perspective; useful context for the others).
 
 
 ## Phase 2: Single-Perspective Review

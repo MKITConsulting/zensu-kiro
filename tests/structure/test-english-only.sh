@@ -12,7 +12,7 @@ cd "$ROOT"
 # Exemptions: this guard itself (its detection word list IS German), and the
 # TDD reminder hook, which mirrors upstream's multilingual user-preference
 # detection tokens ('mit tdd', 'kein tdd', 'tdd bitte', ...) verbatim.
-FILES="$(git ls-files 2>/dev/null | grep -v -e '^tests/structure/test-english-only\.sh$' -e '^hooks/user-prompt-tdd-reminder\.sh$')"
+FILES="$(git ls-files --cached --others --exclude-standard 2>/dev/null | grep -v -e '^tests/structure/test-english-only\.sh$' -e '^hooks/user-prompt-tdd-reminder\.sh$')"
 [ -n "$FILES" ] || { echo "not a git repo / no tracked files"; exit 1; }
 
 UML="$(printf '%s\n' "$FILES" | xargs grep -ln $'\xc3\xa4\|\xc3\xb6\|\xc3\xbc\|\xc3\x84\|\xc3\x96\|\xc3\x9c\|\xc3\x9f' 2>/dev/null || true)"

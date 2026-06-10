@@ -2,7 +2,7 @@
 
 End-to-end reference for the Zensu main-thread TDD workflow that drives strict Red/Green TDD with a PreToolUse phase gate.
 
-> **0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/tdd/SKILL.md` skill. `zensu-code-reviewer` is the only remaining subagent. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
+> **0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/zensu-tdd/SKILL.md` skill. `zensu-code-reviewer` is the only remaining subagent. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
 
 ---
 
@@ -13,10 +13,10 @@ End-to-end reference for the Zensu main-thread TDD workflow that drives strict R
 **When to invoke.**
 
 ```
-Use the Skill tool with skill='zensu-tdd' and the feature spec as input
+Invoke the /zensu-tdd skill with skill='zensu-tdd' and the feature spec as input
 ```
 
-The skill is also auto-invoked by the `ExitPlanMode` PostToolUse hook when the user approves a plan that adds executable code, and by `/zensu-implement` Step 3.
+The skill is suggested per turn by the userPromptSubmit TDD reminder (Kiro has no plan-approval event — see README fidelity matrix) when the user approves a plan that adds executable code, and by `/zensu-implement` Step 3.
 
 **Inputs.**
 
@@ -33,7 +33,7 @@ The skill is also auto-invoked by the `ExitPlanMode` PostToolUse hook when the u
 | Source | test + implementation files | The actual code |
 | Audit | included in log + final report | Build, coverage, mtime discipline, precondition drift |
 
-The plan and log are durable repo artifacts. They are auto-staged and committed (see [CLAUDE.md](../CLAUDE.md) repo conventions).
+The plan and log are durable repo artifacts. They are auto-staged and committed (see [AGENTS.md (repo conventions)](../AGENTS.md) repo conventions).
 
 ---
 
@@ -82,7 +82,7 @@ flowchart TD
 | Phase | Goal | Key outputs |
 |-------|------|-------------|
 | 0. Pre-flight | Capture `SESSION_TS` + `SESSION_EPOCH`, create first task | session timestamps |
-| 1. Discover Project | Read CLAUDE.md hierarchy, detect tech stack, test runners, coverage tool + threshold | tech-stack context |
+| 1. Discover Project | Read AGENTS.md (repo conventions) hierarchy, detect tech stack, test runners, coverage tool + threshold | tech-stack context |
 | 1.5. Precondition Discovery | Enumerate every external CLI/secret/endpoint/fixture named by the spec, verify presence, escalate misses | Preconditions table in plan |
 | 2. Plan + Log | Write plan markdown + initialize log file | plan + log on disk |
 | 3. Create ALL Tasks | 3 tasks per TDD step (test/impl/verify) + 1 per integration step | TaskList populated |
@@ -90,7 +90,7 @@ flowchart TD
 | 5. Checkpoint | Run full test suite + linter, batch-update plan statuses | checkpoint log entry |
 | 6. Audit & Final Report | Build verification, coverage, mtime discipline, precondition drift audit, summary | audit log + final report |
 
-See [agents/tdd-manager.md](../agents/tdd-manager.md) for the canonical phase definitions.
+See [agents/tdd-manager.md](../skills/zensu-tdd/SKILL.md (the flow runs in the MAIN thread on this port; no tdd-manager subagent exists)) for the canonical phase definitions.
 
 ---
 
@@ -224,7 +224,7 @@ These are the guardrails that protect users from common TDD failure modes. Each 
 | **4. Preconditions table in plan** | Plan template includes `## Preconditions` section listing every dependency + verification + user decision. | Auditable record of what was assumed present. |
 | **5. Per-step precondition gate** | If a step's IMPL plan references a precondition marked `skip`, the step gets `[!]` status and is bypassed. No partial test, no placeholder. | Skipped dependencies don't leak into half-broken implementations. |
 | **6. Phase 6 Precondition Drift Audit** | Greps the log for the contracted tool name versus the user-named substitute. Flags `PRECONDITION DRIFT — {tool}: decision={d}, actual={observed}` when reality diverges from the plan. | Catches silent substitution after the fact. |
-| **7. Claude-code CLI promptfoo provider** | Wrapper [scripts/claude-promptfoo-wrapper.sh](../scripts/claude-promptfoo-wrapper.sh) invokes local `claude` as promptfoo `exec:` provider. APFS `cp -cR` per-test isolation. | Eval suite runs without an API key, isolated per test, deterministic. |
+| **7. Claude-code CLI promptfoo provider** | Wrapper [scripts/claude-promptfoo-wrapper.sh](../tests/run-promptfoo.sh) invokes local `claude` as promptfoo `exec:` provider. APFS `cp -cR` per-test isolation. | Eval suite runs without an API key, isolated per test, deterministic. |
 | **8. Hook event mirror** | Opt-in via `ZENSU_HOOK_LOG`. Hook writes denial reason lines into the log when the gate fires. | Eval assertions can verify gate behavior without reading hook stderr. |
 | **9. FSM state enrichment** | Wrapper appends `===== fsm state =====` block (jq-scraped from state file) to its output. | Eval assertions see the phase history. |
 | **B. CLAUDE_AGENT_TYPE export** | Wrapper explicitly `export`s the env var before exec'ing claude. | Hook fires in subagent context where the harness doesn't propagate it natively. |
@@ -233,7 +233,7 @@ These are the guardrails that protect users from common TDD failure modes. Each 
 
 ## 9. Auto-Review Chain
 
-At Phase 6 the `/zensu-tdd` skill marks `--tdd-complete` and spawns `zensu-code-reviewer` itself. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh), registered on the `Stop` matcher in [hooks/hooks.json](../hooks/hooks.json)) guarantees the chain even if that spawn is skipped: it blocks the main agent from ending its turn while `implComplete && !chainDone`. Reviewer findings are routed back into the main thread by [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) to be fixed in-thread under the still-active phase-gate, then the reviewer is re-spawned — looping until PASS or max rounds, after which the terminal `/zensu-self-review` stage runs (see below).
+At Phase 6 the `/zensu-tdd` skill marks `--tdd-complete` and spawns `zensu-code-reviewer` itself. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh), registered on the `Stop` matcher in [hooks/hooks.json](../agents/cli/zensu.json (hooks are wired inside the Kiro agent config))) guarantees the chain even if that spawn is skipped: it blocks the main agent from ending its turn while `implComplete && !chainDone`. Reviewer findings are routed back into the main thread by [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) to be fixed in-thread under the still-active phase-gate, then the reviewer is re-spawned — looping until PASS or max rounds, after which the terminal `/zensu-self-review` stage runs (see below).
 
 ```mermaid
 flowchart LR
@@ -264,7 +264,7 @@ Reviewer returns findings in three tiers:
 
 Auto-fix loop runs up to 5 rounds (configurable via `autoFixMaxRounds` in plugin settings). On the 5th round, the harness emits "max rounds reached, manual fix required" and hands off to the terminal self-review stage (below) instead of stopping — preventing infinite loops on intractable findings.
 
-**Terminal self-review stage (0.5.0+).** When `hooks.selfReview` is enabled (default), the code-reviewer chain does NOT close at convergence. On PASS, suggestions-only, or max-rounds, [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) marks `--code-review-done` and hands off to the `/zensu-self-review` skill ([skills/self-review/SKILL.md](../skills/self-review/SKILL.md)) — a main-thread terminal stage ported from `/reflect`. It re-reads the session's own changes across seven dimensions (architecture, consistency, edge-cases, test coverage, security, simplification, conventions), takes at most ONE fix round under the still-active phase-gate if a must-fix surfaces (latched by `selfReviewFixed`; it never re-spawns the code-reviewer), then owns the chain terminus: it runs `--chain-done` and renders the final report including a `## Self-Review Summary`. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh)) routes to self-review while `codeReviewDone && !chainDone`. Set `hooks.selfReview=false` to restore the pre-0.5.0 behavior where code-reviewer convergence closes the chain directly.
+**Terminal self-review stage (0.5.0+).** When `hooks.selfReview` is enabled (default), the code-reviewer chain does NOT close at convergence. On PASS, suggestions-only, or max-rounds, [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) marks `--code-review-done` and hands off to the `/zensu-self-review` skill ([skills/self-review/SKILL.md](../skills/zensu-self-review/SKILL.md)) — a main-thread terminal stage ported from `/reflect`. It re-reads the session's own changes across seven dimensions (architecture, consistency, edge-cases, test coverage, security, simplification, conventions), takes at most ONE fix round under the still-active phase-gate if a must-fix surfaces (latched by `selfReviewFixed`; it never re-spawns the code-reviewer), then owns the chain terminus: it runs `--chain-done` and renders the final report including a `## Self-Review Summary`. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh)) routes to self-review while `codeReviewDone && !chainDone`. Set `hooks.selfReview=false` to restore the pre-0.5.0 behavior where code-reviewer convergence closes the chain directly.
 
 **Chain-end combined summary.** At every chain-end branch — PASS / zero findings, suggestions-only stop, and max-rounds convergence — `hooks/post-review-tdd-delegate.sh` appends a `CHAIN-END SUMMARY` directive to its `additionalContext` output. The main agent then renders a narrative summary block in this order: `## Problem` (the feature/bug/need this session addressed), `## What I built` (numbered deliverables with status + PR links, carrying the audit facts — feature title, files modified, tests created, build status, mtime audit verdict, coverage status, plan + log paths), `## How I built it` (the TDD discipline followed, the final reviewer verdict with findings count by severity and files reviewed, and the per-round auto-fix trace of EVERY review round 1..N — each round's in-thread fixes plus the clean verification round(s) marked `PASS — 0 findings, nothing to fix`, so the reader sees the chain converged with all findings addressed; skipped only when no review round ran), `## Open` (deferred suggestions / max-rounds findings requiring manual fix / next step), and `## TL;DR` (exactly one sentence, last). This replaces the prior terse-stop behavior so the user retains visibility into the full chain. When `hooks.selfReview` is enabled (default), the terminal `/zensu-self-review` stage renders this summary and inserts a `## Self-Review Summary` section before `## Open`. Controlled by `hooks.combinedSummary` in `~/.zensu/config.json` (default `true`; set `false` to restore terse stop). Contrast `autoFixIncludeSuggestions` which defaults to disabled — `combinedSummary` defaults the other way.
 
@@ -317,13 +317,13 @@ Non-Bash test invocations (rare; e.g. an MCP test runner) use the `via=tool_name
 
 ## See Also
 
-- [agents/tdd-manager.md](../agents/tdd-manager.md) — canonical agent prompt
+- [agents/tdd-manager.md](../skills/zensu-tdd/SKILL.md (the flow runs in the MAIN thread on this port; no tdd-manager subagent exists)) — canonical agent prompt
 - [hooks/pre-edit-tdd-reminder.sh](../hooks/pre-edit-tdd-reminder.sh) — gate enforcement
 - [hooks/lib/zensu-tdd-phase.sh](../hooks/lib/zensu-tdd-phase.sh) — state file I/O
 - [hooks/lib/zensu-log.sh](../hooks/lib/zensu-log.sh) — log + phase helper CLI
-- [hooks/hooks.json](../hooks/hooks.json) — hook registrations
-- [scripts/claude-promptfoo-wrapper.sh](../scripts/claude-promptfoo-wrapper.sh) — eval provider
-- [evals/tdd-manager-pretool/](../evals/tdd-manager-pretool/) — 13 promptfoo scenarios verifying the discipline
-- [tests/structure/](../tests/structure/) — 127 structure tests pinning the contract
-- [CLAUDE.md](../CLAUDE.md) — repo conventions (English-only, version bumps, PR workflow)
+- [hooks/hooks.json](../agents/cli/zensu.json (hooks are wired inside the Kiro agent config)) — hook registrations
+- [scripts/claude-promptfoo-wrapper.sh](../tests/run-promptfoo.sh) — eval provider
+- [evals/tdd-manager-pretool/](../tests/promptfoo/ (live-eval layer of this port)) — 13 promptfoo scenarios verifying the discipline
+- [tests/structure/](../tests/structure/) — the tests/structure suite (one suite per test-*.sh) pinning the contract
+- [AGENTS.md (repo conventions)](../AGENTS.md) — repo conventions (English-only, version bumps, PR workflow)
 - [CHANGELOG.md](../CHANGELOG.md) — release history

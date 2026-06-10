@@ -91,6 +91,8 @@ export default class KiroCliProvider {
     for (const [src, dst] of [
       [join(cwd, ".zensu"), join(artifacts, "zensu")],
       [join(cwd, ".zensu-dump"), join(artifacts, "dump")],
+      [join(cwd, "src"), join(artifacts, "project", "src")],
+      [join(cwd, "test"), join(artifacts, "project", "test")],
       [join(home, ".zensu", "plugin-root"), join(artifacts, "home-zensu", "plugin-root")],
     ]) {
       if (existsSync(src)) cpSync(src, dst, { recursive: true });
@@ -102,9 +104,11 @@ export default class KiroCliProvider {
       JSON.stringify({ sandbox, cwd, home, agent, error: err ? String(err.message || err) : null }, null, 2)
     );
 
+    rmSync(sandbox, { recursive: true, force: true });
+
     if (err && !stdout) {
       return { output: "", error: `kiro-cli failed: ${err.message}\n${stderr.slice(-500)}`, metadata: { artifacts } };
     }
-    return { output: stdout, metadata: { artifacts, stderr: stderr.slice(-2000), sandbox } };
+    return { output: stdout, metadata: { artifacts, stderr: stderr.slice(-2000) } };
   }
 }

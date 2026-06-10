@@ -91,7 +91,7 @@ phase-marker cheat sheet.
 | Session banner/primer | **FULL ✓ live-verified** (`agentSpawn`; payload keys `hook_event_name`/`cwd`/`prompt`, fires on every spawn) | n/a |
 | Pulse session telemetry | **FULL ✓ live-verified (B6)** (plugin-root + MCP pulse tools) | **FULL** |
 
-Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite D1–D6 and
+Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite (D1–D4, D6) and
 behavior suite B1–B3+B6 green (`tests/promptfoo/results/`). Re-run
 `bash tests/run-promptfoo.sh diagnostics` after Kiro releases to re-verify.
 

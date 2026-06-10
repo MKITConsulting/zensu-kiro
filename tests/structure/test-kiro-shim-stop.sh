@@ -51,6 +51,21 @@ ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --chain-done --session "$SID" >/dev/null 2
 OUT="$(run_stop)"; RC=$?
 [ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "chainDone: silent exit 0" || bad "chainDone: rc=$RC out='$OUT'"
 
+# 3b) a SECOND chain in the same session must be enforced again: --tdd-begin
+#     has to clear implComplete/chainDone/codeReviewDone and the .stopblocks
+#     budget left over from chain 1, or the backstop is a silent no-op for
+#     every later chain.
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-begin --session "$SID" >/dev/null 2>&1
+OUT="$(run_stop)"; RC=$?
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && ok "chain 2 armed: stop allowed before implComplete" || bad "chain 2 pre-complete stop wrong: rc=$RC out present"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-complete --session "$SID" >/dev/null 2>&1
+OUT="$(run_stop)"
+printf '%s' "$OUT" | grep -q '"decision":"block"' && ok "chain 2: stop blocks again after re-begin" || bad "chain 2 unenforced (stale chainDone survived --tdd-begin)"
+printf '%s' "$OUT" | grep -q "/zensu-self-review" && bad "chain 2 wrongly resumed at self-review stage (stale codeReviewDone)" || ok "chain 2 starts at reviewer stage (codeReviewDone cleared)"
+[ -f "$(ls "$TDD_STATE_DIR"/tdd-phase-${SID}.json.stopblocks 2>/dev/null | head -1)" ] && B2="$(wc -c < "$TDD_STATE_DIR/tdd-phase-${SID}.json.stopblocks" | tr -d '[:space:]')" || B2=0
+[ "${B2:-0}" -le 2 ] && ok "stopblocks budget reset by --tdd-begin (now $B2)" || bad "stopblocks budget carried over: $B2"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --chain-done --session "$SID" >/dev/null 2>&1
+
 # 4) anti-deadlock budget: a stalled chain stops blocking after the cap
 SID="s07-budget"
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-begin --session "$SID" >/dev/null 2>&1

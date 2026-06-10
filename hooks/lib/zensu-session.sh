@@ -45,14 +45,14 @@ zensu_resolve_session_id() {
       return 0
     fi
   fi
-  if helper_out="$(zensu_resolve_session_via_helper)"; then
-    if [ -n "$helper_out" ]; then
-      echo "$helper_out"
-      return 0
-    fi
-  fi
-  key="$(zensu_session_key)"
-  cache="${CLAUDE_PROJECT_DIR:-.}/.zensu/state/session-id-${key}.txt"
+  # Kiro delta (upstream-sync candidate, documented in AGENTS.md): the
+  # project-scoped current-session file — written only by this port's
+  # agentSpawn capture hook — outranks the Claude-transcript helper. On a
+  # machine where Claude Code has been used in the same project, the helper
+  # would otherwise return the (possibly live-changing) newest Claude
+  # transcript id and detach the armed Kiro state mid-session. Explicit ids
+  # keep absolute precedence above.
+  cache="${CLAUDE_PROJECT_DIR:-.}/.zensu/state/session-id-current.txt"
   if [ -f "$cache" ]; then
     cached="$(cat "$cache" 2>/dev/null)"
     cached="${cached//$'\n'/}"
@@ -63,13 +63,14 @@ zensu_resolve_session_id() {
       return 0
     fi
   fi
-  # Kiro delta (upstream-sync candidate, documented in AGENTS.md): the
-  # project-scoped current-session file written by session-start-capture-sid.
-  # Model-shell processes on Kiro carry neither a session env var nor the
-  # hook's ancestry, so every earlier step misses there; this keeps skill-run
-  # `zensu-log.sh` calls and hook payload resolution on the SAME state file.
-  # Last resort before the fallback — explicit ids and the keyed cache win.
-  cache="${CLAUDE_PROJECT_DIR:-.}/.zensu/state/session-id-current.txt"
+  if helper_out="$(zensu_resolve_session_via_helper)"; then
+    if [ -n "$helper_out" ]; then
+      echo "$helper_out"
+      return 0
+    fi
+  fi
+  key="$(zensu_session_key)"
+  cache="${CLAUDE_PROJECT_DIR:-.}/.zensu/state/session-id-${key}.txt"
   if [ -f "$cache" ]; then
     cached="$(cat "$cache" 2>/dev/null)"
     cached="${cached//$'\n'/}"

@@ -4,8 +4,8 @@ How to generate feature/component documentation in Zensu so it is **grounded in
 the actual source code**, correctly typed, and useful — not a restatement of
 feature metadata.
 
-This is the single source of truth referenced by `agents/zensu-plm.md`,
-`skills/implement/SKILL.md`, and `skills/ghost-scan/SKILL.md`. Read it before
+This is the single source of truth referenced by `agents/prompts/zensu-plm.md`,
+`skills/zensu-implement/SKILL.md`, and `skills/zensu-ghost-scan/SKILL.md`. Read it before
 creating any wiki page or linked doc.
 
 ## What a Zensu doc IS

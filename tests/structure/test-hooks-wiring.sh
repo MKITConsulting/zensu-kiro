@@ -27,11 +27,17 @@ CHECK="$(ZJSON="$Z" ROOT="$ROOT" node -e '
   const events = ["agentSpawn","userPromptSubmit","preToolUse","postToolUse","stop"];
   out.push("events " + events.every(e => Array.isArray(hooks[e]) && hooks[e].length > 0));
   const all = [].concat(...events.map(e => hooks[e] || []));
-  out.push("shimmed " + all.every(h => typeof h.command === "string" && /__ZENSU_HOME__\/hooks\/kiro\/kiro-shim\.sh [a-z0-9-]+\.sh$/.test(fs.readFileSync(process.env.ZJSON,"utf8").match(new RegExp(h.command.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"))) ? h.command.replace("/tmp/zensu-home","__ZENSU_HOME__") : h.command)));
-  const scripts = all.map(h => (h.command.match(/kiro-shim\.sh ([a-z0-9-]+\.sh)/) || [])[1]).filter(Boolean);
+  // EVERY hook command must route through the shim (substituted form):
+  // bash /tmp/zensu-home/hooks/kiro/kiro-shim.sh <script>.sh
+  out.push("shimmed " + (all.length > 0 && all.every(h =>
+    typeof h.command === "string" &&
+    /^bash \/tmp\/zensu-home\/hooks\/kiro\/kiro-shim\.sh [a-z0-9-]+\.sh$/.test(h.command)
+  )));
+  const scripts = all.map(h => ((h.command || "").match(/kiro-shim\.sh ([a-z0-9-]+\.sh)/) || [])[1]).filter(Boolean);
   out.push("scripts " + JSON.stringify([...new Set(scripts)]));
+  out.push("scripts_count " + new Set(scripts).size);
   const pre = (hooks.preToolUse || []).map(h => h.matcher || "");
-  out.push("pre_write " + (pre.includes("write") && pre.includes("fs_write")));
+  out.push("pre_write " + (pre.includes("write") && pre.includes("fs_write") && pre.includes("fsWrite")));
   out.push("pre_zensu " + pre.includes("@zensu"));
   const post = (hooks.postToolUse || []).map(h => h.matcher || "");
   out.push("post_shell " + (post.includes("shell") && post.includes("execute_bash")));
@@ -48,7 +54,10 @@ CHECK="$(ZJSON="$Z" ROOT="$ROOT" node -e '
 
 case "$CHECK" in PARSE_FAIL*) bad "zensu.json parse: $CHECK" ;; *) ok "zensu.json parses (with substitution)" ;; esac
 printf '%s' "$CHECK" | grep -q "^events true" && ok "all 5 hook events wired" || bad "missing hook events"
-printf '%s' "$CHECK" | grep -q "^pre_write true" && ok "preToolUse covers write + fs_write" || bad "preToolUse write matchers missing"
+printf '%s' "$CHECK" | grep -q "^shimmed true" && ok "every hook command routes through kiro-shim" || bad "unshimmed hook command present"
+SC="$(printf '%s' "$CHECK" | sed -n 's/^scripts_count //p')"
+[ "${SC:-0}" -ge 10 ] && ok "wired script set non-empty ($SC scripts)" || bad "wired script extraction empty/thin ($SC)"
+printf '%s' "$CHECK" | grep -q "^pre_write true" && ok "preToolUse covers write + fs_write + fsWrite" || bad "preToolUse write matchers incomplete"
 printf '%s' "$CHECK" | grep -q "^pre_zensu true" && ok "preToolUse covers @zensu (MCP gate)" || bad "preToolUse @zensu matcher missing"
 printf '%s' "$CHECK" | grep -q "^post_shell true" && ok "postToolUse covers shell + execute_bash (witness)" || bad "postToolUse shell matchers missing"
 printf '%s' "$CHECK" | grep -q "^post_subagent true" && ok "postToolUse covers subagent (review delegate)" || bad "postToolUse subagent matcher missing"
@@ -60,9 +69,13 @@ printf '%s' "$CHECK" | grep -q "^subagents .*zensu-code-reviewer" && ok "subagen
 printf '%s' "$CHECK" | grep -q "^subagents .*zensu-review-aspect" && ok "subagent allowlist includes zensu-review-aspect" || bad "allowlist lacks review-aspect"
 printf '%s' "$CHECK" | grep -q "^mcpjson true" && ok "includeMcpJson enabled" || bad "includeMcpJson not true"
 
-# every wired script exists
+# every wired script exists — and speaks Kiro naming: no Claude colon-form
+# skill/agent names (zensu:foo, /zensu:foo) may reach the model from a wired
+# hook's runtime strings (comment lines are exempt).
 for s in $(printf '%s' "$CHECK" | sed -n 's/^scripts \[\(.*\)\]$/\1/p' | tr -d '"' | tr ',' ' '); do
   [ -f "$ROOT/hooks/$s" ] && ok "wired script exists: $s" || bad "wired script missing: $s"
+  COLON="$(grep -nE 'zensu:[a-z-]+' "$ROOT/hooks/$s" 2>/dev/null | grep -vE '^[0-9]+:\s*#' || true)"
+  [ -z "$COLON" ] && ok "no colon-form zensu names: $s" || { bad "Claude colon-form names in $s:"; printf '%s\n' "$COLON" | head -2; }
 done
 
 # zensu-plm.json: NO @zensu gate hook, but @zensu tools available
