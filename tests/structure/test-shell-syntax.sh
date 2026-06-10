@@ -31,10 +31,10 @@ if grep -q 'env:ProgramFiles(x86)}' "$ROOT/install.ps1"; then
 else
   bad "install.ps1 ProgramFiles(x86) interpolation broken (expands as \$env:ProgramFiles + literal)"
 fi
-if grep -qi 'System32' "$ROOT/install.ps1"; then
-  ok "install.ps1 excludes WSL System32 bash"
+if grep -q "notmatch '..Windows..(System32|Sysnative)" "$ROOT/install.ps1"; then
+  ok "install.ps1 functionally excludes WSL System32/Sysnative bash (-notmatch filter present)"
 else
-  bad "install.ps1 does not exclude WSL \\Windows\\System32\\bash.exe (installs into the WSL filesystem)"
+  bad "install.ps1 lacks the functional -notmatch System32/Sysnative filter (comments do not count)"
 fi
 
 # bash 3.2 (stock macOS): expanding an EMPTY array under set -u aborts with

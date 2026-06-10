@@ -38,7 +38,7 @@ Create a task immediately: `todo-add(subject: "Code Review: Analyzing files", de
    - If `N == 0` or fetch was skipped: no warning, leave `{drift_warning}` unset.
    - Rationale: catches the common "working on stale HEAD without main's fix" failure mode in one cheap branch comparison before any review work.
 1. **Determine file list**: from prompt ("Files changed: [...]") or fallback `git diff HEAD --name-only`
-2. **Read CLAUDE.md files** in project hierarchy. Extract key rules as bullet list.
+2. **Read all convention files** in the project hierarchy (CLAUDE.md, AGENTS.md, .kiro/steering/*.md). Extract key rules as bullet list.
 3. **Check for plan documents** in `.zensu/plans/`
 4. **Read each changed file** with the Read tool. For each, also run `git diff HEAD -- <file>`.
 
@@ -95,7 +95,7 @@ For EACH finding across all 5 perspectives:
 
 Many bug classes (compile errors, broken imports, frozen-at-build-time env config) only show up when the project is actually built. Read-only review misses them. Do this once per review.
 
-1. **Determine the build approach for this project.** Read whichever of these exist: `README.md`, `CLAUDE.md`, `package.json` (`scripts.build`), `pom.xml` (Maven goals), `Cargo.toml` (`[package]` / `[[bin]]`), `Makefile` (top-level `build` target), `go.mod` (implies `go build ./...`), `pyproject.toml`, etc. Pick the project's canonical build command. If multiple are present, prefer the one the project's own docs name as "build".
+1. **Determine the build approach for this project.** Read whichever of these exist: `README.md`, `CLAUDE.md`/`AGENTS.md`, `package.json` (`scripts.build`), `pom.xml` (Maven goals), `Cargo.toml` (`[package]` / `[[bin]]`), `Makefile` (top-level `build` target), `go.mod` (implies `go build ./...`), `pyproject.toml`, etc. Pick the project's canonical build command. If multiple are present, prefer the one the project's own docs name as "build".
 2. **Decide applicability.** Build verification is APPLICABLE if the changeset touches code that compiles into an artifact (source files in TypeScript, Java, Rust, Go, etc.). It is NOT applicable if:
    - The changeset is documentation-only (only `.md`, `.txt`, `.rst` files).
    - The changeset is configuration-only AND no build is wired (pure `.json` / `.yaml` config without a build step).

@@ -76,8 +76,8 @@ source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-session.sh"
 SESSION_ID="$(zensu_resolve_session_id "$SESSION_ID")"
 
 MAX_ROUNDS="$(zensu_autofix_max_rounds)"
+# KEEP IN SYNC with hooks/lib/zensu-log.sh --tdd-begin (same expression).
 STATE_DIR="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
-mkdir -p "$STATE_DIR" 2>/dev/null || true
 COUNTER_FILE="$STATE_DIR/rounds-${SESSION_ID}.json"
 if [ -L "$COUNTER_FILE" ]; then
   echo "zensu post-review hook: refusing to write through symlink at $COUNTER_FILE — counter NOT updated" >&2
@@ -87,6 +87,7 @@ if [ -L "$STATE_DIR" ] || [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
   echo "zensu post-review hook: refusing to write under symlinked state path — counter NOT updated" >&2
   exit 0
 fi
+mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 # Round bump under a per-counter mutex (the FSM lib's lock helper keyed on
 # the counter file): the sanctioned fan-out completes five

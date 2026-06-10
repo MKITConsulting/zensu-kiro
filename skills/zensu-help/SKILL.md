@@ -44,10 +44,11 @@ None. This skill answers from embedded knowledge and the plugin's canonical docs
 
 ## Agents (embedded — one-liners)
 
+- `zensu-review-aspect` — read-only single-perspective reviewer; five run in parallel during the TDD review fan-out.
 - `zensu-plm` — orchestrates planning workflows (bootstrap, ghost-scan, security review, release readiness).
 - `zensu-code-reviewer` — single READ-ONLY subagent running 5 sequential perspectives: conventions, bugs, architecture, tests, security.
 
-TDD discipline (RED→IMPL→GREEN, FSM-gated edits, 3-retry IMPL escalation, completeness audit) is NOT a subagent — it runs in the main thread via the `/zensu-tdd` skill (migrated from the `tdd-manager` subagent in 0.4.0).
+TDD discipline (RED→IMPL→GREEN, FSM-gated edits, 3-retry IMPL escalation, completeness audit) is NOT a subagent — it runs in the main thread via the `/zensu-tdd` skill (migrated from the `tdd-manager` subagent in upstream zensu-claude-code 0.4.0).
 
 ## Topic Routing (live read for volatile facts)
 

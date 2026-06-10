@@ -2,7 +2,7 @@
 
 End-to-end reference for the Zensu main-thread TDD workflow that drives strict Red/Green TDD with a PreToolUse phase gate.
 
-> **0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/zensu-tdd/SKILL.md` skill. `zensu-code-reviewer` is the only subagent the TDD chain spawns directly. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
+> **Upstream (zensu-claude-code) 0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/zensu-tdd/SKILL.md` skill. `zensu-code-reviewer` is the only subagent the TDD chain spawns directly. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
 
 ---
 
@@ -170,7 +170,7 @@ The preToolUse hook fires on the Kiro `write` tool (aliases `fs_write`, `fsWrite
 
 | Variable | Where set | Effect |
 |----------|-----------|--------|
-| `CLAUDE_AGENT_TYPE` | Claude-code harness sets it on subagent spawn (e.g. `zensu-code-reviewer`). | Since 0.4.0 it no longer gates the TDD phase-gate/witness — activation moved to the chain-state `active` flag. Retained for other introspection and the eval harness. |
+| `CLAUDE_AGENT_TYPE` | Claude-code harness sets it on subagent spawn (e.g. `zensu-code-reviewer`). | Since upstream 0.4.0 it no longer gates the TDD phase-gate/witness — activation moved to the chain-state `active` flag. Retained for other introspection and the eval harness. |
 | `ZENSU_TDD_GATE` | User sets in shell | Set to `off` to bypass the phase-gate entirely for legitimate non-TDD edits (docs, config, one-offs). |
 | `ZENSU_CHAIN` | User sets in shell | Set to `off` to disable the `Stop`-hook review-chain backstop ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh)) so the main agent may end its turn without completing the review chain. |
 | `ZENSU_HOOK_LOG` | Eval wrapper sets per isolated test dir | Opt-in mirror of denial reasons. Hook writes 4 lines (`TDD-Phase-Gate`, `Current phase:`, `Expected:`, `permissionDecision=deny`) on denial. Empty file in production. |
@@ -224,10 +224,10 @@ These are the guardrails that protect users from common TDD failure modes. Each 
 | **4. Preconditions table in plan** | Plan template includes `## Preconditions` section listing every dependency + verification + user decision. | Auditable record of what was assumed present. |
 | **5. Per-step precondition gate** | If a step's IMPL plan references a precondition marked `skip`, the step gets `[!]` status and is bypassed. No partial test, no placeholder. | Skipped dependencies don't leak into half-broken implementations. |
 | **6. Phase 6 Precondition Drift Audit** | Greps the log for the contracted tool name versus the user-named substitute. Flags `PRECONDITION DRIFT — {tool}: decision={d}, actual={observed}` when reality diverges from the plan. | Catches silent substitution after the fact. |
-| **7. Claude-code CLI promptfoo provider** | Wrapper [tests/run-promptfoo.sh](../tests/run-promptfoo.sh) (upstream: scripts/claude-promptfoo-wrapper.sh) drives a real `kiro-cli chat --no-interactive` through tests/promptfoo/providers/kiro-cli.mjs as promptfoo `exec:` provider. per-test throwaway project sandboxes. | Eval suite runs without an API key, isolated per test, deterministic. |
+| **7. kiro-cli promptfoo provider** | Wrapper [tests/run-promptfoo.sh](../tests/run-promptfoo.sh) (upstream: scripts/claude-promptfoo-wrapper.sh) drives a real `kiro-cli chat --no-interactive` through tests/promptfoo/providers/kiro-cli.mjs as promptfoo `exec:` provider. Per-test throwaway project sandboxes. | Eval suite runs without an API key, isolated per test, deterministic. |
 | **8. Hook event mirror** | Opt-in via `ZENSU_HOOK_LOG`. Hook writes denial reason lines into the log when the gate fires. | Eval assertions can verify gate behavior without reading hook stderr. |
-| **9. FSM state enrichment** | Wrapper appends `===== fsm state =====` block (jq-scraped from state file) to its output. | Eval assertions see the phase history. |
-| **B. CLAUDE_AGENT_TYPE export** | Wrapper explicitly `export`s the env var before exec'ing claude. | Hook fires in subagent context where the harness doesn't propagate it natively. |
+| **9. FSM state enrichment** | The provider copies the project's `.zensu` state/logs into `tests/promptfoo/.artifacts/<label>/` for file-based assertions | Eval assertions see the phase history. |
+| **B. CLAUDE_AGENT_TYPE export** | Hook activation rides the per-session chain-state `active` flag (`zensu-log.sh --tdd-begin`); the provider sets no agent-type env | Hook fires in subagent context where the harness doesn't propagate it natively. |
 
 ---
 

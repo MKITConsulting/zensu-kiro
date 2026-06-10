@@ -76,12 +76,16 @@ ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --chain-done --session "$SID" >/dev/null 2
 
 # 3d) a truncated zensu-log option call (value missing) must FAIL FAST, never
 #     hang the model's shell tool in an arg-loop
-timeout 3 bash "$LOG" --phase IMPL --step >/dev/null 2>&1
-RC=$?
-[ "$RC" -ne 124 ] && ok "truncated --step call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing option value"
-timeout 3 bash "$LOG" --tdd-begin --session >/dev/null 2>&1
-RC=$?
-[ "$RC" -ne 124 ] && ok "truncated --session call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing --session value"
+if command -v timeout >/dev/null 2>&1; then
+  timeout 3 bash "$LOG" --phase IMPL --step >/dev/null 2>&1
+  RC=$?
+  [ "$RC" -ne 124 ] && ok "truncated --step call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing option value"
+  timeout 3 bash "$LOG" --tdd-begin --session >/dev/null 2>&1
+  RC=$?
+  [ "$RC" -ne 124 ] && ok "truncated --session call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing --session value"
+else
+  ok "skipped: no timeout(1) on this platform (no-hang guard covered on CI)"
+fi
 
 # 4) anti-deadlock budget: a stalled chain stops blocking after the cap
 SID="s07-budget"

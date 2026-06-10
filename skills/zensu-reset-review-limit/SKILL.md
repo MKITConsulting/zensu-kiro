@@ -87,9 +87,9 @@ fi
 
 If `CLAUDE_PLUGIN_DATA_OVERRIDE` is NOT set, the recipe targets the project-local default. If the user reports a stale legacy counter (pre-upstream-0.3.23) at `~/.kiro/plugins/data/zensu-inline/`, mention that the upstream fix in 0.3.23 made that path inert — those files no longer affect the running hook, so manual cleanup is cosmetic and OPTIONAL.
 
-### Re-arm the main-thread review chain (0.4.0+)
+### Re-arm the main-thread review chain (upstream 0.4.0+)
 
-Since 0.4.0 the TDD workflow runs in the main thread and the review chain is backstopped by `hooks/stop-chain-enforcer.sh`. Resetting only the round counter does NOT resume the chain past `autoFixMaxRounds`: the convergence branch also set the per-session `chainDone` terminal flag, and the Stop hook tracks a `*.stopblocks` budget. Clear both — strictly within `$STATE_DIR`, same symlink guard as above:
+Since upstream (zensu-claude-code) 0.4.0 the TDD workflow runs in the main thread and the review chain is backstopped by `hooks/stop-chain-enforcer.sh`. Resetting only the round counter does NOT resume the chain past `autoFixMaxRounds`: the convergence branch also set the per-session `chainDone` terminal flag, and the Stop hook tracks a `*.stopblocks` budget. Clear both — strictly within `$STATE_DIR`, same symlink guard as above:
 
 ```sh
 for f in $(find "$STATE_DIR" -maxdepth 1 -name '*.stopblocks' 2>/dev/null); do

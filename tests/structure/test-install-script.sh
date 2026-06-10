@@ -157,13 +157,15 @@ printf '{"mcpServers":{"other":{"url":"https://example.com/mcp"}}}\n' > "$HOME/.
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore healthy state
 
 # 7d) non-loopback http disguised as loopback must be FATAL
-for EVIL in "http://localhost.evil.com/mcp" "http://127.0.0.1.evil.com/mcp" "http://127.0.0.1@evil.com/mcp"; do
+for EVIL in "http://localhost.evil.com/mcp" "http://127.0.0.1.evil.com/mcp" "http://127.0.0.1@evil.com/mcp" "http://127.0.0.1:80@evil.com/mcp" "http://localhost:1@evil.com/mcp"; do
   bash "$INSTALL" --scope user --no-default --mcp-url "$EVIL" >/dev/null 2>&1
   RC=$?
   [ "$RC" -ne 0 ] && ok "rejected pseudo-loopback $EVIL" || bad "accepted pseudo-loopback $EVIL"
 done
-bash "$INSTALL" --scope user --no-default --mcp-url "http://127.0.0.1:8080/mcp" >/dev/null 2>&1
-[ "$?" -eq 0 ] && ok "true loopback with port accepted (warn)" || bad "true loopback rejected"
+ERRTXT="$(bash "$INSTALL" --scope user --no-default --mcp-url "http://127.0.0.1:8080/mcp" 2>&1 >/dev/null)"
+RC=$?
+[ "$RC" -eq 0 ] && ok "true loopback with port passes https-only validation" || bad "true loopback rejected"
+printf '%s' "$ERRTXT" | grep -q "non-TLS loopback" && ok "loopback warn announced" || bad "no loopback warning"
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore default url
 
 # 7e) first-install over a PRE-EXISTING user file must not silently overwrite
@@ -174,6 +176,10 @@ printf 'my own notes\n' > "$PRE"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
 [ "$(cat "$PRE")" = "my own notes" ] && ok "pre-existing unrecorded file preserved on first install" || bad "first install overwrote pre-existing user file"
 printf '%s' "$OUT" | grep -qi "skip" && ok "pre-existing file SKIP warned" || bad "no warning for pre-existing file"
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+[ "$(cat "$PRE")" = "my own notes" ] && ok "pre-existing file STILL preserved on the run after (guard persists)" || bad "second run silently overwrote the foreign file (guard evaporated)"
+bash "$INSTALL" --uninstall >/dev/null 2>&1
+[ -f "$PRE" ] && ok "uninstall keeps the foreign file (never recorded as ours)" || bad "uninstall deleted a file the installer never wrote"
 rm -f "$PRE"; bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
 # 8) --scope workspace: own tree, own manifest, scoped uninstall
@@ -184,13 +190,15 @@ bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user 
 [ -f "$WS/.kiro/agents/zensu.json" ] && ok "workspace agents installed" || bad "workspace agents missing"
 [ -f "$HOME/.kiro/zensu/manifest.json" ] && ok "user manifest still present" || bad "user manifest clobbered"
 # 8b) a crafted WORKSPACE manifest must not reach into $HOME/.kiro: plant an
-#     entry pointing at a user-scope hook with its REAL hash and force-uninstall
+#     entry pointing at a user-scope hook with a dummy hash (--force ignores
+#     hashes, so only path confinement protects the file) and force-uninstall
 SENT2="$HOME/.kiro/zensu/hooks/pre-mcp-zensu-gate.sh"
 node -e '
   const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   m.files[process.argv[2]] = "0".repeat(64);
   fs.writeFileSync(process.argv[1], JSON.stringify(m,null,2));
 ' "$WS/.kiro/zensu-manifest.json" "$SENT2"
+grep -q "$SENT2" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
 ( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
 [ -f "$SENT2" ] && ok "workspace uninstall cannot delete user-scope files (scope-confined)" || bad "workspace manifest reached into \$HOME/.kiro (deleted gate hook!)"
 [ -f "$WS/.kiro/agents/zensu.json" ] && bad "workspace uninstall left workspace agents" || ok "workspace uninstall removed workspace files"
@@ -203,6 +211,7 @@ node -e '
   m.files[process.argv[2]] = "0".repeat(64);
   fs.writeFileSync(process.argv[1], JSON.stringify(m,null,2));
 ' "$HOME/.kiro/zensu/manifest.json" "$HOME/.kiro-evil/owned.txt"
+grep -q ".kiro-evil/owned.txt" "$HOME/.kiro/zensu/manifest.json" || bad "8c tamper failed to plant entry"
 bash "$INSTALL" --uninstall --force >/dev/null 2>&1
 [ -f "$HOME/.kiro-evil/owned.txt" ] && ok "sibling-prefix path refused (.kiro-evil intact)" || bad "uninstall deleted under .kiro-evil"
 

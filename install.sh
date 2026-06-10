@@ -83,6 +83,9 @@ REPO_MCP_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(proce
 # http is allowed for local development with a warning.
 case "$MCP_URL" in
   https://*) ;;
+  http://*@*)
+    # userinfo form: the REAL host follows the @ (http://127.0.0.1:x@evil.com)
+    echo "FATAL: --mcp-url must not carry userinfo (@) in a plain-http url (got: $MCP_URL)" >&2; exit 2 ;;
   http://127.0.0.1|http://127.0.0.1:*|http://127.0.0.1/*|http://localhost|http://localhost:*|http://localhost/*)
     echo "warn: non-TLS loopback MCP url ($MCP_URL)" >&2 ;;
   *) echo "FATAL: --mcp-url must be https:// (got: $MCP_URL; loopback http is allowed only as http://127.0.0.1[:port]/... or http://localhost[:port]/...)" >&2; exit 2 ;;
@@ -102,6 +105,7 @@ manifest_lookup() { # $1=manifest $2=abs path -> recorded hash or empty
 
 USER_LIST="$(mktemp)"; SCOPE_LIST="$(mktemp)"
 trap 'rm -f "$USER_LIST" "$SCOPE_LIST"' EXIT
+INSTALL_FAILED=0
 
 # install_file <src-abs> <dst-abs> <list-file> [render]
 install_file() {
@@ -125,9 +129,11 @@ install_file() {
       # Either the user modified a file we installed, or the file pre-existed
       # without any record of ours — never silently overwrite foreign content.
       say "SKIP    $dst (pre-existing/user-modified; --force to overwrite)"
-      # Carry a record forward so the guard survives this upgrade's manifest
-      # rewrite (otherwise the NEXT run would silently overwrite).
-      printf '%s\t%s\n' "$dst" "${recorded:-$old}" >> "$list"
+      # User-modified OUR file: carry the previous record forward so the guard
+      # survives this upgrade's manifest rewrite. FOREIGN file (no record):
+      # record NOTHING — recording its hash would make the next run treat it
+      # as ours (silent UPDATE) and uninstall would delete it.
+      [ -n "$recorded" ] && printf '%s\t%s\n' "$dst" "$recorded" >> "$list"
       return 0
     fi
     say "UPDATE  $dst"
@@ -145,6 +151,7 @@ install_file() {
   else
     rm -f "$tmp" 2>/dev/null
     say "ERROR   $dst (write failed; not recorded)"
+    INSTALL_FAILED=1
     return 1
   fi
 }
@@ -172,7 +179,10 @@ merge_mcp() {
         process.exit(3);
       }
     }
-    if (typeof j !== "object" || j === null) j = {};
+    if (typeof j !== "object" || j === null || Array.isArray(j)) {
+      console.error("warn: " + file + " has a non-object JSON root — mcp merge skipped; fix the file and re-run");
+      process.exit(3);
+    }
     j.mcpServers = j.mcpServers || {};
     const existing = j.mcpServers.zensu;
     if (existing && existing.url !== url && process.env.FORCE_ENV !== "1") {
@@ -256,6 +266,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
   done
   if [ -n "$REC_MCP_FILE" ]; then
     case "$REC_MCP_FILE" in
+      *..*) say "REFUSE  mcp unmerge target contains parent traversal: $REC_MCP_FILE" ;;
       "$KIRO_DIR/settings/"*) unmerge_mcp "$REC_MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}" ;;
       *) say "REFUSE  mcp unmerge target outside $KIRO_DIR/settings: $REC_MCP_FILE" ;;
     esac
@@ -318,7 +329,7 @@ if [ "$DRY" -ne 1 ]; then
     # user manifest keeps runtime entries; preserve its previous skills/agents
     # records by merging: runtime list + existing user-scope entries that still
     # exist on disk and are not runtime files re-recorded above.
-    USER_MCP_FILE="$HOME/.kiro/settings/mcp.json"; USER_MCP_URL="$REPO_MCP_URL"
+    USER_MCP_FILE=""; USER_MCP_URL=""   # only what a USER-scope run actually recorded
     if [ -f "$USER_MANIFEST" ]; then
       # Preserve the user manifest's previous skills/agents records (only for
       # files that still exist) AND its recorded mcp target — a workspace run
@@ -367,4 +378,8 @@ say "done. Next steps:"
 say "  kiro-cli chat --agent zensu          # OAuth to the zensu MCP runs on first @zensu call"
 say "  /zensu-help                          # orientation; /zensu-tdd for gate-enforced TDD"
 say "  headless: KIRO_API_KEY=... kiro-cli chat --no-interactive --agent zensu --trust-all-tools '<prompt>'"
+if [ "$INSTALL_FAILED" -ne 0 ]; then
+  echo "install completed WITH ERRORS (see ERROR lines above)" >&2
+  exit 1
+fi
 exit 0

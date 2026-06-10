@@ -74,7 +74,10 @@ GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; cd "$TMP" && CLAUDE_PROJECT_DI
 if [ "$GOT" = "claude-transcript-id" ]; then
   ok "transcript helper resolves the planted fixture (4b is a real test)"
 else
-  ok "skipped: transcript helper cannot resolve fixture here (4b vacuous on this platform; got '$GOT')"
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ok "skipped: transcript fixture unresolvable on Windows path semantics (4b vacuous here, real on ubuntu)" ;;
+    *) bad "transcript helper cannot resolve planted fixture (4b vacuous): got '$GOT'" ;;
+  esac
 fi
 mv "$TMP/.zensu/state/session-id-current.txt.bak" "$TMP/.zensu/state/session-id-current.txt"
 

@@ -75,11 +75,13 @@ case "${1:-}" in
         tdd_set_flag "$session_val" codeReviewDone false
         tdd_set_flag "$session_val" selfReviewFixed false
         stopblocks_file="$(tdd_state_file "$session_val").stopblocks"
-        if [ -L "$stopblocks_file" ]; then
-          echo "zensu-log --tdd-begin: refusing to delete through symlink at $stopblocks_file — stop budget NOT reset" >&2
+        stopblocks_dir="$(dirname "$stopblocks_file")"
+        if [ -L "$stopblocks_file" ] || [ -L "$stopblocks_dir" ] || [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
+          echo "zensu-log --tdd-begin: refusing stop-budget reset through symlinked path — NOT reset" >&2
         else
           rm -f -- "$stopblocks_file"
         fi
+        # KEEP IN SYNC with hooks/post-review-tdd-delegate.sh (same expression).
         rounds_state_dir="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
         rounds_counter_file="${rounds_state_dir}/rounds-${session_val}.json"
         if [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then

@@ -50,8 +50,9 @@ fi
 # Kiro: shell-tool processes carry no session env and a different ancestry
 # than this hook, so the keyed cache above never matches a model-run
 # `zensu-log.sh` call. Persist the id additionally as the project-scoped
-# "current session" file, which zensu_resolve_session_id consults as its
-# last step before the PPID fallback.
+# "current session" file, which zensu_resolve_session_id consults right
+# after an explicit id — ABOVE the Claude-transcript helper and the keyed
+# cache (order pinned by tests/structure/test-session-resolution.sh).
 CUR="$CACHE_DIR/session-id-current.txt"
 TMP="$(mktemp "$CACHE_DIR/session-id-current.XXXXXX" 2>/dev/null)" || exit 0
 if printf '%s\n' "$SID" > "$TMP" 2>/dev/null; then

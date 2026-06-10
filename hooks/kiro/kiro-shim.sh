@@ -14,7 +14,8 @@
 #   - {"hookSpecificOutput":{"additionalContext": "..."}}
 #       -> plain context text on STDOUT + exit 0 (Kiro adds hook stdout to the
 #          agent context on exit 0)
-#   - anything else -> passthrough stdout/stderr + the script's own exit code
+#   - anything else -> passthrough stdout/stderr + exit 0 (fail-open; exit 2
+#     is reserved exclusively for the explicit deny classification)
 #
 # Fail-open: a missing/broken wrapped script or missing node must never break
 # the host session — the shim exits 0 silently in those cases.
@@ -38,8 +39,7 @@ PAYLOAD="$(cat 2>/dev/null || true)"
 CAP_DIR="$(mktemp -d 2>/dev/null)" || exit 0
 OUT_FILE="$CAP_DIR/out"
 ERR_FILE="$CAP_DIR/err"
-printf '%s' "$PAYLOAD" | bash "$SCRIPT" >"$OUT_FILE" 2>"$ERR_FILE"
-SCRIPT_RC=$?
+printf '%s' "$PAYLOAD" | bash "$SCRIPT" >"$OUT_FILE" 2>"$ERR_FILE" || true
 
 OUT="$(cat "$OUT_FILE" 2>/dev/null || true)"
 ERR="$(cat "$ERR_FILE" 2>/dev/null || true)"
