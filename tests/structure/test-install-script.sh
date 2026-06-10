@@ -182,6 +182,28 @@ bash "$INSTALL" --uninstall >/dev/null 2>&1
 [ -f "$PRE" ] && ok "uninstall keeps the foreign file (never recorded as ours)" || bad "uninstall deleted a file the installer never wrote"
 rm -f "$PRE"; bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
+# 7f) sha256sum fallback: with `shasum` hidden from PATH the installer must
+#     still hash correctly (idempotent NOOP re-run proves real hashes)
+SHIMBIN="$TMP/shimbin"; mkdir -p "$SHIMBIN"
+for t in node bash sed mv mkdir mktemp rm cat cut printf find sort dirname basename chmod cp tr grep sha256sum kiro-cli; do
+  P="$(command -v "$t" 2>/dev/null)" && [ -n "$P" ] && ln -s "$P" "$SHIMBIN/$t" 2>/dev/null
+done
+if [ -x "$SHIMBIN/sha256sum" ]; then
+  bash "$INSTALL" --uninstall --force >/dev/null 2>&1
+  PATH="$SHIMBIN" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+  RC=$?
+  [ "$RC" -eq 0 ] && ok "install works with sha256sum fallback (no shasum on PATH)" || bad "sha256sum-fallback install rc=$RC"
+  MAN_HASH="$(node -e 'const m=require(process.argv[1]);const k=Object.keys(m.files)[0];console.log((m.files[k]||"").length)' "$HOME/.kiro/zensu/manifest.json" 2>/dev/null)"
+  [ "$MAN_HASH" = "64" ] && ok "fallback produced real sha256 hashes (len 64)" || bad "fallback hashes wrong (len=$MAN_HASH — empty hashes disable every guard)"
+  M1="$(mt "$HOME/.kiro/agents/zensu.json")"
+  PATH="$SHIMBIN" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+  M2="$(mt "$HOME/.kiro/agents/zensu.json")"
+  [ "$M1" = "$M2" ] && ok "fallback re-run is NOOP (hashes comparable)" || bad "fallback re-run rewrote files"
+else
+  ok "skipped: no sha256sum binary on this machine (fallback covered on Linux CI)"
+fi
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+
 # 8) --scope workspace: own tree, own manifest, scoped uninstall
 WS="$TMP/ws"; mkdir -p "$WS"
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user scope

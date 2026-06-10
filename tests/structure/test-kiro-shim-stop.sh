@@ -74,6 +74,15 @@ printf '{"count":4}\n' > "$TMP/.zensu/state/rounds-${SID}.json"
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-complete --session "$SID" >/dev/null 2>&1
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --chain-done --session "$SID" >/dev/null 2>&1
 
+# 3c2) the rounds-counter path must come from ONE shared helper
+#      (zensu_rounds_counter_file in the FSM lib), consumed by BOTH the
+#      delegate and zensu-log --tdd-begin — duplicated expressions drift.
+grep -q "zensu_rounds_counter_file" "$ROOT/hooks/lib/zensu-tdd-phase.sh" && ok "shared rounds-path helper exists in lib" || bad "no zensu_rounds_counter_file helper in zensu-tdd-phase.sh"
+grep -q "zensu_rounds_counter_file" "$ROOT/hooks/lib/zensu-log.sh" && ok "zensu-log consumes the shared helper" || bad "zensu-log still inlines the rounds path"
+grep -q "zensu_rounds_counter_file" "$ROOT/hooks/post-review-tdd-delegate.sh" && ok "delegate consumes the shared helper" || bad "delegate still inlines the rounds path"
+HGOT="$(source "$ROOT/hooks/lib/zensu-tdd-phase.sh" 2>/dev/null; CLAUDE_PROJECT_DIR="$TMP" zensu_rounds_counter_file demo-sid 2>/dev/null)"
+[ "$HGOT" = "$TMP/.zensu/state/rounds-demo-sid.json" ] && ok "helper resolves the canonical path" || bad "helper path wrong: '$HGOT'"
+
 # 3d) a truncated zensu-log option call (value missing) must FAIL FAST, never
 #     hang the model's shell tool in an arg-loop
 if command -v timeout >/dev/null 2>&1; then

@@ -76,9 +76,9 @@ source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-session.sh"
 SESSION_ID="$(zensu_resolve_session_id "$SESSION_ID")"
 
 MAX_ROUNDS="$(zensu_autofix_max_rounds)"
-# KEEP IN SYNC with hooks/lib/zensu-log.sh --tdd-begin (same expression).
-STATE_DIR="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
-COUNTER_FILE="$STATE_DIR/rounds-${SESSION_ID}.json"
+source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
+COUNTER_FILE="$(zensu_rounds_counter_file "$SESSION_ID")"
+STATE_DIR="$(dirname "$COUNTER_FILE")"
 if [ -L "$COUNTER_FILE" ]; then
   echo "zensu post-review hook: refusing to write through symlink at $COUNTER_FILE — counter NOT updated" >&2
   exit 0
@@ -93,7 +93,6 @@ mkdir -p "$STATE_DIR" 2>/dev/null || true
 # the counter file): the sanctioned fan-out completes five
 # spawns near-simultaneously, so an unlocked read-modify-write would lose
 # increments.
-source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
 _zensu_rounds_bump() {
   local counter_file="$1" current next payload tmp
   current="$(node -e '

@@ -50,7 +50,7 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
   and the gate under `write`/`fs_write`/`fsWrite` — a host matching aliases
   transitively would double-fire (the round counter is mutex-locked, but budget
   would count double; re-verify via the diagnostics suite on Kiro upgrades).
-- `hooks/lib/*.sh` are verbatim upstream copies (plus `zensu-runtime.sh`).
+- `hooks/lib/*.sh` are upstream copies (plus the port-owned `zensu-runtime.sh`).
   Fix bugs upstream first, then re-sync. **Documented lib deltas** (upstream-sync
   candidates, each pinned by a structure test):
   - `zensu-session.sh` — consults the project-scoped
@@ -60,6 +60,9 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     model-shell processes have foreign ancestry, and on mixed machines the
     transcript helper would return live-changing Claude ids
     (`test-session-resolution.sh`).
+  - `zensu-tdd-phase.sh` — adds `zensu_rounds_counter_file <session>`, the
+    single owner of the rounds-counter path consumed by the delegate's bump
+    and `--tdd-begin`'s reset (`test-kiro-shim-stop.sh`).
   - `zensu-log.sh` — `--tdd-begin` clears the previous chain's terminal flags
     (`implComplete`/`chainDone`/`codeReviewDone`/`selfReviewFixed`), deletes
     the `.stopblocks` budget AND the auto-fix rounds counter, so a second TDD

@@ -81,9 +81,8 @@ case "${1:-}" in
         else
           rm -f -- "$stopblocks_file"
         fi
-        # KEEP IN SYNC with hooks/post-review-tdd-delegate.sh (same expression).
-        rounds_state_dir="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
-        rounds_counter_file="${rounds_state_dir}/rounds-${session_val}.json"
+        rounds_counter_file="$(zensu_rounds_counter_file "$session_val")"
+        rounds_state_dir="$(dirname "$rounds_counter_file")"
         if [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
           echo "zensu-log --tdd-begin: refusing resets under symlinked .zensu — NOT reset" >&2
         elif [ -L "$rounds_counter_file" ]; then

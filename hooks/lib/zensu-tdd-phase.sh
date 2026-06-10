@@ -437,4 +437,14 @@ tdd_has_red_fail() {
   echo "$val"
 }
 
-export -f tdd_state_file tdd_is_test_path _tdd_locked_run tdd_write_phase _tdd_write_phase_critical tdd_phase tdd_step tdd_has_red_fail _tdd_write_flag_critical tdd_set_flag _tdd_write_clear_critical tdd_clear_session tdd_get_flag tdd_session_active tdd_impl_complete tdd_chain_done tdd_code_review_done tdd_self_review_fixed zensu_workflow_active zensu_workflow_allows tdd_workflow_begin _tdd_write_workflow_begin_critical 2>/dev/null || true
+# Kiro delta (upstream-sync candidate, documented in AGENTS.md): single owner
+# of the auto-fix rounds-counter path, consumed by BOTH writers
+# (hooks/post-review-tdd-delegate.sh bump, zensu-log.sh --tdd-begin reset) so
+# the expression cannot drift between them.
+zensu_rounds_counter_file() {
+  local session_id="${1:-}"
+  local dir="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
+  printf '%s/rounds-%s.json' "$dir" "$session_id"
+}
+
+export -f zensu_rounds_counter_file tdd_state_file tdd_is_test_path _tdd_locked_run tdd_write_phase _tdd_write_phase_critical tdd_phase tdd_step tdd_has_red_fail _tdd_write_flag_critical tdd_set_flag _tdd_write_clear_critical tdd_clear_session tdd_get_flag tdd_session_active tdd_impl_complete tdd_chain_done tdd_code_review_done tdd_self_review_fixed zensu_workflow_active zensu_workflow_allows tdd_workflow_begin _tdd_write_workflow_begin_critical 2>/dev/null || true
