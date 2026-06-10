@@ -123,6 +123,59 @@ bash "$INSTALL" --uninstall >/dev/null 2>&1
 CUR_URL="$(node -e 'console.log(((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers||{}).zensu||{}).url||"")' "$HOME/.kiro/settings/mcp.json")"
 [ -z "$CUR_URL" ] && ok "custom url entry removed on uninstall" || bad "custom url entry left behind: $CUR_URL"
 
+# 7b) merge conflict: pre-existing zensu entry with a DIFFERENT url is left
+#     untouched (warn, rc 0) without --force; --force overwrites; sibling keys
+#     of an identical-url entry survive idempotent re-merge
+node -e '
+  const f=process.argv[1]; const j=JSON.parse(require("fs").readFileSync(f,"utf8"));
+  j.mcpServers=j.mcpServers||{}; j.mcpServers.zensu={url:"https://custom.example/mcp",disabled:false};
+  require("fs").writeFileSync(f, JSON.stringify(j,null,2)+"\n");
+' "$HOME/.kiro/settings/mcp.json"
+OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "conflicting-url install still exits 0" || bad "conflict install rc=$RC"
+printf '%s' "$OUT" | grep -qi "warn" && ok "conflicting url warned" || bad "no conflict warning"
+CUR_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.url)' "$HOME/.kiro/settings/mcp.json")"
+[ "$CUR_URL" = "https://custom.example/mcp" ] && ok "conflicting url left untouched" || bad "conflict url clobbered: $CUR_URL"
+bash "$INSTALL" --scope user --no-default --force >/dev/null 2>&1
+CUR_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.url)' "$HOME/.kiro/settings/mcp.json")"
+[ "$CUR_URL" = "https://mcp.zensu.dev/mcp" ] && ok "--force overwrites conflicting url" || bad "--force did not overwrite: $CUR_URL"
+node -e '
+  const f=process.argv[1]; const j=JSON.parse(require("fs").readFileSync(f,"utf8"));
+  j.mcpServers.zensu.disabled=false;
+  require("fs").writeFileSync(f, JSON.stringify(j,null,2)+"\n");
+' "$HOME/.kiro/settings/mcp.json"
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+SIB="$(node -e 'console.log(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.disabled))' "$HOME/.kiro/settings/mcp.json")"
+[ "$SIB" = "false" ] && ok "idempotent re-merge preserves sibling keys" || bad "re-merge dropped sibling keys (disabled=$SIB)"
+
+# 7c) malformed existing mcp.json must NOT be silently replaced by {zensu-only}
+printf '{ broken json,,, \n' > "$HOME/.kiro/settings/mcp.json"
+OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
+grep -q "broken json" "$HOME/.kiro/settings/mcp.json" && ok "malformed mcp.json left untouched" || bad "malformed mcp.json was clobbered"
+printf '%s' "$OUT" | grep -qiE "warn|malformed|parse" && ok "malformed mcp.json warned" || bad "no malformed warning"
+printf '{"mcpServers":{"other":{"url":"https://example.com/mcp"}}}\n' > "$HOME/.kiro/settings/mcp.json"
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore healthy state
+
+# 7d) non-loopback http disguised as loopback must be FATAL
+for EVIL in "http://localhost.evil.com/mcp" "http://127.0.0.1.evil.com/mcp" "http://127.0.0.1@evil.com/mcp"; do
+  bash "$INSTALL" --scope user --no-default --mcp-url "$EVIL" >/dev/null 2>&1
+  RC=$?
+  [ "$RC" -ne 0 ] && ok "rejected pseudo-loopback $EVIL" || bad "accepted pseudo-loopback $EVIL"
+done
+bash "$INSTALL" --scope user --no-default --mcp-url "http://127.0.0.1:8080/mcp" >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "true loopback with port accepted (warn)" || bad "true loopback rejected"
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore default url
+
+# 7e) first-install over a PRE-EXISTING user file must not silently overwrite
+PRE="$HOME/.kiro/skills/zensu-help/SKILL.md"
+bash "$INSTALL" --uninstall --force >/dev/null 2>&1
+mkdir -p "$(dirname "$PRE")"
+printf 'my own notes\n' > "$PRE"
+OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
+[ "$(cat "$PRE")" = "my own notes" ] && ok "pre-existing unrecorded file preserved on first install" || bad "first install overwrote pre-existing user file"
+printf '%s' "$OUT" | grep -qi "skip" && ok "pre-existing file SKIP warned" || bad "no warning for pre-existing file"
+rm -f "$PRE"; bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+
 # 8) --scope workspace: own tree, own manifest, scoped uninstall
 WS="$TMP/ws"; mkdir -p "$WS"
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user scope
@@ -130,9 +183,28 @@ bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user 
 [ -f "$WS/.kiro/skills/zensu-tdd/SKILL.md" ] && ok "workspace skills installed under \$PWD/.kiro" || bad "workspace skills missing"
 [ -f "$WS/.kiro/agents/zensu.json" ] && ok "workspace agents installed" || bad "workspace agents missing"
 [ -f "$HOME/.kiro/zensu/manifest.json" ] && ok "user manifest still present" || bad "user manifest clobbered"
-( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace >/dev/null 2>&1 )
+# 8b) a crafted WORKSPACE manifest must not reach into $HOME/.kiro: plant an
+#     entry pointing at a user-scope hook with its REAL hash and force-uninstall
+SENT2="$HOME/.kiro/zensu/hooks/pre-mcp-zensu-gate.sh"
+node -e '
+  const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  m.files[process.argv[2]] = "0".repeat(64);
+  fs.writeFileSync(process.argv[1], JSON.stringify(m,null,2));
+' "$WS/.kiro/zensu-manifest.json" "$SENT2"
+( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
+[ -f "$SENT2" ] && ok "workspace uninstall cannot delete user-scope files (scope-confined)" || bad "workspace manifest reached into \$HOME/.kiro (deleted gate hook!)"
 [ -f "$WS/.kiro/agents/zensu.json" ] && bad "workspace uninstall left workspace agents" || ok "workspace uninstall removed workspace files"
 [ -f "$HOME/.kiro/agents/zensu.json" ] && ok "workspace uninstall left USER scope untouched" || bad "workspace uninstall deleted user-scope files"
+
+# 8c) sibling-prefix collision: $HOME/.kiro-evil must be refused on user uninstall
+mkdir -p "$HOME/.kiro-evil"; printf 'owned\n' > "$HOME/.kiro-evil/owned.txt"
+node -e '
+  const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  m.files[process.argv[2]] = "0".repeat(64);
+  fs.writeFileSync(process.argv[1], JSON.stringify(m,null,2));
+' "$HOME/.kiro/zensu/manifest.json" "$HOME/.kiro-evil/owned.txt"
+bash "$INSTALL" --uninstall --force >/dev/null 2>&1
+[ -f "$HOME/.kiro-evil/owned.txt" ] && ok "sibling-prefix path refused (.kiro-evil intact)" || bad "uninstall deleted under .kiro-evil"
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

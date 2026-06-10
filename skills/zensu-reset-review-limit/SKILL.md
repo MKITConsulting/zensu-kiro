@@ -7,12 +7,12 @@ description: Reset the auto-fix loop round counter so the post-review-tdd-delega
 
 Reset the auto-fix loop round counter so the `post-review-tdd-delegate.sh` hook stops emitting the `Auto-fix convergence: max N rounds reached` directive. Use this when you want to continue the review/fix cycle past the `autoFixMaxRounds` budget within the **current task**.
 
-Since 0.4.1 the counter auto-resets at every fresh task: `zensu-log.sh --tdd-begin` (run once in `/zensu-tdd` Phase 0, before any edit) deletes the `rounds-<session_id>.json` file, so each new task's review chain always starts at round 1 on its own. This manual skill is therefore only needed to grant *additional* budget **within a single task** that exhausted its rounds mid-chain — it is no longer needed between tasks in the same session.
+Since upstream (zensu-claude-code) 0.4.1 the counter auto-resets at every fresh task: `zensu-log.sh --tdd-begin` (run once in `/zensu-tdd` Phase 0, before any edit) deletes the `rounds-<session_id>.json` file, so each new task's review chain always starts at round 1 on its own. This manual skill is therefore only needed to grant *additional* budget **within a single task** that exhausted its rounds mid-chain — it is no longer needed between tasks in the same session.
 
 ## When to Use
 
 - The `post-review-tdd-delegate.sh` hook emitted `Auto-fix convergence: max <N> rounds reached. The review chain is now marked complete (chainDone)...` for the task you are STILL working on, and you want to grant another budget so the `zensu-code-reviewer` review/auto-fix chain can resume in the main thread.
-- You suspect the counter was inflated by a prior pre-0.3.23 run (when the counter was unintentionally user-global) and want a clean slate.
+- You suspect the counter was inflated by a prior pre-upstream-0.3.23 run (when the counter was unintentionally user-global) and want a clean slate.
 - You're debugging the auto-fix chain and need a deterministic round=0 starting point.
 
 ## Do NOT Use For
@@ -38,7 +38,7 @@ None. No MCP connection, no API key, no network. Pure local file removal under t
 
 ## What This Skill Does
 
-Deletes round-counter JSON files written by `hooks/post-review-tdd-delegate.sh`. The counter path resolves to `${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}/rounds-<session_id>.json` (since 0.3.23). Removing the file makes the hook's first read at the next `zensu-code-reviewer` completion return `0`, so `NEXT=1` and the chain resumes from round 1.
+Deletes round-counter JSON files written by `hooks/post-review-tdd-delegate.sh`. The counter path resolves to `${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}/rounds-<session_id>.json` (since upstream zensu-claude-code 0.3.23). Removing the file makes the hook's first read at the next `zensu-code-reviewer` completion return `0`, so `NEXT=1` and the chain resumes from round 1.
 
 ## Phase 1: Locate
 
@@ -85,7 +85,7 @@ else
 fi
 ```
 
-If `CLAUDE_PLUGIN_DATA_OVERRIDE` is NOT set, the recipe targets the project-local default. If the user reports a stale legacy counter (pre-0.3.23) at `~/.kiro/plugins/data/zensu-inline/`, mention that the fix in 0.3.23 made that path inert — those files no longer affect the running hook, so manual cleanup is cosmetic and OPTIONAL.
+If `CLAUDE_PLUGIN_DATA_OVERRIDE` is NOT set, the recipe targets the project-local default. If the user reports a stale legacy counter (pre-upstream-0.3.23) at `~/.kiro/plugins/data/zensu-inline/`, mention that the upstream fix in 0.3.23 made that path inert — those files no longer affect the running hook, so manual cleanup is cosmetic and OPTIONAL.
 
 ### Re-arm the main-thread review chain (0.4.0+)
 

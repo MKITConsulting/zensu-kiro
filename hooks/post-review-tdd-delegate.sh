@@ -83,12 +83,13 @@ if [ -L "$COUNTER_FILE" ]; then
   echo "zensu post-review hook: refusing to write through symlink at $COUNTER_FILE — counter NOT updated" >&2
   exit 0
 fi
-if [ -L "$STATE_DIR" ]; then
-  echo "zensu post-review hook: refusing to write under symlinked state dir $STATE_DIR — counter NOT updated" >&2
+if [ -L "$STATE_DIR" ] || [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
+  echo "zensu post-review hook: refusing to write under symlinked state path — counter NOT updated" >&2
   exit 0
 fi
 
-# Round bump under the shared FSM mutex: the sanctioned fan-out completes five
+# Round bump under a per-counter mutex (the FSM lib's lock helper keyed on
+# the counter file): the sanctioned fan-out completes five
 # spawns near-simultaneously, so an unlocked read-modify-write would lose
 # increments.
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"

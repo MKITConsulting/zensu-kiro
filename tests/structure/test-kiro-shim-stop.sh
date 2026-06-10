@@ -64,7 +64,24 @@ printf '%s' "$OUT" | grep -q '"decision":"block"' && ok "chain 2: stop blocks ag
 printf '%s' "$OUT" | grep -q "/zensu-self-review" && bad "chain 2 wrongly resumed at self-review stage (stale codeReviewDone)" || ok "chain 2 starts at reviewer stage (codeReviewDone cleared)"
 [ -f "$(ls "$TDD_STATE_DIR"/tdd-phase-${SID}.json.stopblocks 2>/dev/null | head -1)" ] && B2="$(wc -c < "$TDD_STATE_DIR/tdd-phase-${SID}.json.stopblocks" | tr -d '[:space:]')" || B2=0
 [ "${B2:-0}" -le 2 ] && ok "stopblocks budget reset by --tdd-begin (now $B2)" || bad "stopblocks budget carried over: $B2"
+
+# 3c) --tdd-begin must ALSO reset the auto-fix rounds counter (chain 2 starts
+#     at round 1; a carried-over counter would converge the chain prematurely)
+mkdir -p "$TMP/.zensu/state"
+printf '{"count":4}\n' > "$TMP/.zensu/state/rounds-${SID}.json"
+( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-begin --session "$SID" >/dev/null 2>&1 )
+[ -f "$TMP/.zensu/state/rounds-${SID}.json" ] && bad "rounds counter survived --tdd-begin" || ok "rounds counter reset by --tdd-begin"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-complete --session "$SID" >/dev/null 2>&1
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --chain-done --session "$SID" >/dev/null 2>&1
+
+# 3d) a truncated zensu-log option call (value missing) must FAIL FAST, never
+#     hang the model's shell tool in an arg-loop
+timeout 3 bash "$LOG" --phase IMPL --step >/dev/null 2>&1
+RC=$?
+[ "$RC" -ne 124 ] && ok "truncated --step call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing option value"
+timeout 3 bash "$LOG" --tdd-begin --session >/dev/null 2>&1
+RC=$?
+[ "$RC" -ne 124 ] && ok "truncated --session call exits (rc=$RC, no hang)" || bad "zensu-log hangs on missing --session value"
 
 # 4) anti-deadlock budget: a stalled chain stops blocking after the cap
 SID="s07-budget"

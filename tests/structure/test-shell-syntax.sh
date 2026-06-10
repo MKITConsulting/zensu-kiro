@@ -23,6 +23,20 @@ for f in "$ROOT/install.sh" "$ROOT/hooks/kiro/kiro-shim.sh" "$ROOT/tests/run-all
   [ -x "$f" ] && ok "executable: $rel" || bad "not executable: $rel"
 done
 
+# install.ps1 correctness is not executable on this runner; pin the two
+# Windows-specific fixes literally: the ProgramFiles(x86) env var needs the
+# brace form, and WSL's System32 bash must be excluded from candidates.
+if grep -q 'env:ProgramFiles(x86)}' "$ROOT/install.ps1"; then
+  ok "install.ps1 uses \${env:ProgramFiles(x86)} brace form"
+else
+  bad "install.ps1 ProgramFiles(x86) interpolation broken (expands as \$env:ProgramFiles + literal)"
+fi
+if grep -qi 'System32' "$ROOT/install.ps1"; then
+  ok "install.ps1 excludes WSL System32 bash"
+else
+  bad "install.ps1 does not exclude WSL \\Windows\\System32\\bash.exe (installs into the WSL filesystem)"
+fi
+
 # bash 3.2 (stock macOS): expanding an EMPTY array under set -u aborts with
 # "unbound variable" — every array expansion in entry scripts must use the
 # ${arr[@]+"${arr[@]}"} guard form.

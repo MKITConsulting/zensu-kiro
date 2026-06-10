@@ -34,13 +34,17 @@ MCP_URL=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --scope) SCOPE="${2:-user}"; shift 2 ;;
+    --scope)
+      [ $# -ge 2 ] || { echo "FATAL: --scope needs a value" >&2; exit 2; }
+      SCOPE="$2"; shift 2 ;;
+    --mcp-url)
+      [ $# -ge 2 ] || { echo "FATAL: --mcp-url needs a value" >&2; exit 2; }
+      MCP_URL="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --force) FORCE=1; shift ;;
     --set-default) SET_DEFAULT="yes"; shift ;;
     --no-default) SET_DEFAULT="no"; shift ;;
-    --mcp-url) MCP_URL="${2:-}"; shift 2 ;;
     -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -79,8 +83,9 @@ REPO_MCP_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(proce
 # http is allowed for local development with a warning.
 case "$MCP_URL" in
   https://*) ;;
-  http://127.0.0.1*|http://localhost*) echo "warn: non-TLS loopback MCP url ($MCP_URL)" >&2 ;;
-  *) echo "FATAL: --mcp-url must be https:// (got: $MCP_URL)" >&2; exit 2 ;;
+  http://127.0.0.1|http://127.0.0.1:*|http://127.0.0.1/*|http://localhost|http://localhost:*|http://localhost/*)
+    echo "warn: non-TLS loopback MCP url ($MCP_URL)" >&2 ;;
+  *) echo "FATAL: --mcp-url must be https:// (got: $MCP_URL; loopback http is allowed only as http://127.0.0.1[:port]/... or http://localhost[:port]/...)" >&2; exit 2 ;;
 esac
 
 say() { printf '%s\n' "$*"; }
@@ -116,11 +121,13 @@ install_file() {
     fi
     recorded="$(manifest_lookup "$USER_MANIFEST" "$dst")"
     [ -n "$recorded" ] || recorded="$(manifest_lookup "$SCOPE_MANIFEST" "$dst")"
-    if [ -n "$recorded" ] && [ "$old" != "$recorded" ] && [ "$FORCE" -ne 1 ]; then
-      say "SKIP    $dst (user-modified; --force to overwrite)"
-      # Carry the previous record forward so the guard survives this upgrade's
-      # manifest rewrite (otherwise the NEXT run would silently overwrite).
-      printf '%s\t%s\n' "$dst" "$recorded" >> "$list"
+    if [ "$FORCE" -ne 1 ] && { { [ -n "$recorded" ] && [ "$old" != "$recorded" ]; } || [ -z "$recorded" ]; }; then
+      # Either the user modified a file we installed, or the file pre-existed
+      # without any record of ours — never silently overwrite foreign content.
+      say "SKIP    $dst (pre-existing/user-modified; --force to overwrite)"
+      # Carry a record forward so the guard survives this upgrade's manifest
+      # rewrite (otherwise the NEXT run would silently overwrite).
+      printf '%s\t%s\n' "$dst" "${recorded:-$old}" >> "$list"
       return 0
     fi
     say "UPDATE  $dst"
@@ -130,9 +137,16 @@ install_file() {
   [ "$DRY" -eq 1 ] && { printf '%s\t%s\n' "$dst" "$want" >> "$list"; return 0; }
   mkdir -p "$(dirname "$dst")"
   tmp="$(mktemp "$(dirname "$dst")/.zensu-install.XXXXXX")" || return 1
-  printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$dst"
-  case "$dst" in *.sh) chmod +x "$dst" ;; esac
-  printf '%s\t%s\n' "$dst" "$want" >> "$list"
+  if printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$dst"; then
+    case "$dst" in *.sh) chmod +x "$dst" ;; esac
+    # Record ONLY successful writes — a failed write must not poison the
+    # manifest with a hash the on-disk file does not have.
+    printf '%s\t%s\n' "$dst" "$want" >> "$list"
+  else
+    rm -f "$tmp" 2>/dev/null
+    say "ERROR   $dst (write failed; not recorded)"
+    return 1
+  fi
 }
 
 json_write_atomic() { # $1=file ; JSON on stdin
@@ -149,7 +163,15 @@ merge_mcp() {
     const fs = require("fs");
     const file = process.env.MCP_FILE_ENV, url = process.env.MCP_URL_ENV;
     let j = {};
-    try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) {}
+    if (fs.existsSync(file)) {
+      // An existing-but-malformed settings file must never be replaced by a
+      // zensu-only document — that would silently drop every other server.
+      try { j = JSON.parse(fs.readFileSync(file, "utf8")); }
+      catch (e) {
+        console.error("warn: " + file + " exists but is not valid JSON (" + e.message + ") — mcp merge skipped; fix the file and re-run");
+        process.exit(3);
+      }
+    }
     if (typeof j !== "object" || j === null) j = {};
     j.mcpServers = j.mcpServers || {};
     const existing = j.mcpServers.zensu;
@@ -157,7 +179,8 @@ merge_mcp() {
       console.error("warn: mcpServers.zensu already exists with a different url (" + existing.url + ") — left untouched (--force to overwrite)");
       process.exit(3);
     }
-    j.mcpServers.zensu = { url };
+    // Preserve user-added sibling keys (disabled, headers, ...) on re-merge.
+    j.mcpServers.zensu = Object.assign({}, existing || {}, { url });
     process.stdout.write(JSON.stringify(j, null, 2) + "\n");
   ' | { read -r first || exit 0; { printf '%s\n' "$first"; cat; } | json_write_atomic "$MCP_FILE"; }
 }
@@ -178,12 +201,15 @@ unmerge_mcp() { # $1=mcp file $2=recorded url
   ' | { read -r first || exit 0; { printf '%s\n' "$first"; cat; } | json_write_atomic "$1"; }
 }
 
-# Allowed deletion roots: a manifest entry may only be removed when it is an
-# absolute path under one of these and contains no parent traversal.
+# Allowed deletion root: a manifest entry may only be removed when it is an
+# absolute path under the ACTIVE scope's .kiro dir (user scope: $HOME/.kiro;
+# workspace scope: $PWD/.kiro) and contains no parent traversal. Deliberately
+# scope-confined: a crafted WORKSPACE manifest in a malicious checkout must
+# not be able to name user-scope files. The trailing slash in the pattern
+# keeps sibling prefixes ($HOME/.kiro-evil) out.
 path_allowed() { # $1=abs path
   case "$1" in
     *..*) return 1 ;;
-    "$HOME/.kiro/"*) return 0 ;;
     "$KIRO_DIR/"*) return 0 ;;
   esac
   return 1
@@ -228,13 +254,19 @@ if [ "$UNINSTALL" -eq 1 ]; then
       say "KEEP    $p (user-modified)"
     fi
   done
-  [ -n "$REC_MCP_FILE" ] && unmerge_mcp "$REC_MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}"
+  if [ -n "$REC_MCP_FILE" ]; then
+    case "$REC_MCP_FILE" in
+      "$KIRO_DIR/settings/"*) unmerge_mcp "$REC_MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}" ;;
+      *) say "REFUSE  mcp unmerge target outside $KIRO_DIR/settings: $REC_MCP_FILE" ;;
+    esac
+  fi
   if [ "$DRY" -ne 1 ]; then
     rm -f "$SCOPE_MANIFEST"
     find "$ZENSU_HOME" -type d -empty -delete 2>/dev/null || true
     find "$KIRO_DIR/skills" -type d -empty -delete 2>/dev/null || true
   fi
   say "uninstalled scope=$SCOPE. (~/.zensu user data left untouched; reset your default agent with: kiro-cli agent set-default <name>)"
+  [ "$SCOPE" = "user" ] && say "note: workspace-scoped installs in other directories keep agent configs referencing the removed runtime — run --scope workspace --uninstall there, or reinstall user scope" 
   exit 0
 fi
 
@@ -286,16 +318,25 @@ if [ "$DRY" -ne 1 ]; then
     # user manifest keeps runtime entries; preserve its previous skills/agents
     # records by merging: runtime list + existing user-scope entries that still
     # exist on disk and are not runtime files re-recorded above.
+    USER_MCP_FILE="$HOME/.kiro/settings/mcp.json"; USER_MCP_URL="$REPO_MCP_URL"
     if [ -f "$USER_MANIFEST" ]; then
+      # Preserve the user manifest's previous skills/agents records (only for
+      # files that still exist) AND its recorded mcp target — a workspace run
+      # must not clobber a custom user-scope --mcp-url record.
+      PREV_MCP_FILE="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpFile||"")}catch(_){}' "$USER_MANIFEST")"
+      PREV_MCP_URL="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpUrl||"")}catch(_){}' "$USER_MANIFEST")"
+      [ -n "$PREV_MCP_FILE" ] && USER_MCP_FILE="$PREV_MCP_FILE"
+      [ -n "$PREV_MCP_URL" ] && USER_MCP_URL="$PREV_MCP_URL"
       node -e '
         const fs = require("fs");
         const m = JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
         for (const [p,h] of Object.entries(m.files||{})) console.log(p+"\t"+h);
       ' "$USER_MANIFEST" | while IFS="$(printf '\t')" read -r p h; do
+        [ -f "$p" ] || continue
         case "$p" in "$ZENSU_HOME"/*) ;; *) printf '%s\t%s\n' "$p" "$h" >> "$USER_LIST" ;; esac
       done
     fi
-    write_manifest "$USER_MANIFEST" "$USER_LIST" "$HOME/.kiro/settings/mcp.json" "$REPO_MCP_URL"
+    write_manifest "$USER_MANIFEST" "$USER_LIST" "$USER_MCP_FILE" "$USER_MCP_URL"
     write_manifest "$SCOPE_MANIFEST" "$SCOPE_LIST" "$MCP_FILE" "$MCP_URL"
   else
     cat "$SCOPE_LIST" >> "$USER_LIST"

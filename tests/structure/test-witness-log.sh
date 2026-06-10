@@ -63,9 +63,14 @@ TAIL_LEN="$(grep 'cmd="long run"' "$WITNESS" | sed -n 's/.*tail="\([^"]*\)".*/\1
 SLY="$TMP/sly"; REALDIR="$TMP/elsewhere"
 mkdir -p "$SLY" "$REALDIR"
 mkdir -p "$SLY/.zensu"
-ln -s "$REALDIR" "$SLY/.zensu/logs"
-printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"sneaky"},"tool_response":{"exit_code":0,"stdout":"x"}}' "$SID" "$SLY" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
-grep -rq 'sneaky' "$REALDIR" 2>/dev/null && bad "witness wrote through symlinked logs dir" || ok "witness refuses symlinked logs dir"
+ln -s "$REALDIR" "$SLY/.zensu/logs" 2>/dev/null || true
+if [ -L "$SLY/.zensu/logs" ]; then
+  printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"sneaky"},"tool_response":{"exit_code":0,"stdout":"x"}}' "$SID" "$SLY" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>"$TMP/sly.err"
+  grep -rq 'sneaky' "$REALDIR" 2>/dev/null && bad "witness wrote through symlinked logs dir" || ok "witness refuses symlinked logs dir"
+  grep -q "refusing symlinked logs target" "$TMP/sly.err" && ok "symlink refusal announced on stderr" || bad "no refusal message on stderr"
+else
+  ok "skipped: platform cannot create symlinks (guard untestable here, covered on ubuntu CI)"
+fi
 
 # 3) ZENSU_TEST_WITNESS=off silences
 LINES_BEFORE="$(wc -l < "$WITNESS" | tr -d '[:space:]')"

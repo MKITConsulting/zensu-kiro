@@ -39,13 +39,13 @@ None. This skill answers from embedded knowledge and the plugin's canonical docs
 ## Three Layers (embedded — architecture overview)
 
 1. **Planning** (`zensu-plm` agent) — `/zensu-bootstrap` (greenfield: a plan/vision doc, no code yet) or `/zensu-ghost-scan` (brownfield: an existing codebase) produce tracked features, user journeys, and linked docs. **Hybrid** (existing code *and* a forward plan doc): ghost-scan first to import what is built, then create the plan's not-yet-built items as `planned` features. The agent triages by asking: (1) code already built or starting fresh? (2) plan/vision doc present? (3) if both, does the plan describe things not yet built?
-2. **Implementation** (`/zensu-tdd` skill in the MAIN thread + `zensu-code-reviewer` subagent) — strict RED→IMPL→GREEN TDD enforced by a PreToolUse FSM gate, followed by 5 sequential code-review perspectives, then an auto-fix loop guaranteed by the `Stop` hook (`stop-chain-enforcer.sh`). Since 0.4.0 the TDD workflow runs in the main agent (was a `tdd-manager` subagent); `zensu-code-reviewer` is the only remaining subagent.
+2. **Implementation** (`/zensu-tdd` skill in the MAIN thread + `zensu-code-reviewer` subagent) — strict RED→IMPL→GREEN TDD enforced by a PreToolUse FSM gate, followed by 5 sequential code-review perspectives, then an auto-fix loop guaranteed by the `Stop` hook (`stop-chain-enforcer.sh`). Since upstream (zensu-claude-code) 0.4.0 the TDD workflow runs in the main agent (was a `tdd-manager` subagent); `zensu-code-reviewer` is the only subagent the TDD chain spawns directly (zensu-plm and zensu-review-aspect are the other shipped subagents).
 3. **Tracking** — web dashboard surfaces security scores, journey health, tier matrix, coverage trends.
 
 ## Agents (embedded — one-liners)
 
 - `zensu-plm` — orchestrates planning workflows (bootstrap, ghost-scan, security review, release readiness).
-- `code-reviewer` — single READ-ONLY subagent running 5 sequential perspectives: conventions, bugs, architecture, tests, security.
+- `zensu-code-reviewer` — single READ-ONLY subagent running 5 sequential perspectives: conventions, bugs, architecture, tests, security.
 
 TDD discipline (RED→IMPL→GREEN, FSM-gated edits, 3-retry IMPL escalation, completeness audit) is NOT a subagent — it runs in the main thread via the `/zensu-tdd` skill (migrated from the `tdd-manager` subagent in 0.4.0).
 

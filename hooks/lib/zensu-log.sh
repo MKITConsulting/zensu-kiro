@@ -10,12 +10,20 @@ case "${1:-}" in
     step_val=""
     session_val=""
     reason_val=""
+    # Kiro delta: value-consuming options fail fast when the value is missing
+    # (bash leaves params unchanged when `shift 2` exceeds $#, so the loop
+    # would otherwise spin forever and hang the model's shell tool).
     while [ $# -gt 0 ]; do
       case "$1" in
-        --phase)   phase_val="${2:-}";   shift 2 ;;
-        --step)    step_val="${2:-}";    shift 2 ;;
-        --session) session_val="${2:-}"; shift 2 ;;
-        --reason)  reason_val="${2:-}";  shift 2 ;;
+        --phase|--step|--session|--reason)
+          [ $# -ge 2 ] || { echo "zensu-log.sh: $1 needs a value" >&2; exit 2; }
+          case "$1" in
+            --phase)   phase_val="$2" ;;
+            --step)    step_val="$2" ;;
+            --session) session_val="$2" ;;
+            --reason)  reason_val="$2" ;;
+          esac
+          shift 2 ;;
         *) shift ;;
       esac
     done
@@ -38,8 +46,13 @@ case "${1:-}" in
     tools_val=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --session) session_val="${2:-}"; shift 2 ;;
-        --tools)   tools_val="${2:-}";   shift 2 ;;
+        --session|--tools)
+          [ $# -ge 2 ] || { echo "zensu-log.sh: $1 needs a value" >&2; exit 2; }
+          case "$1" in
+            --session) session_val="$2" ;;
+            --tools)   tools_val="$2" ;;
+          esac
+          shift 2 ;;
         *) shift ;;
       esac
     done
@@ -69,7 +82,9 @@ case "${1:-}" in
         fi
         rounds_state_dir="${CLAUDE_PLUGIN_DATA_OVERRIDE:-${CLAUDE_PROJECT_DIR:-.}/.zensu/state}"
         rounds_counter_file="${rounds_state_dir}/rounds-${session_val}.json"
-        if [ -L "$rounds_counter_file" ]; then
+        if [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
+          echo "zensu-log --tdd-begin: refusing resets under symlinked .zensu — NOT reset" >&2
+        elif [ -L "$rounds_counter_file" ]; then
           echo "zensu-log --tdd-begin: refusing to delete through symlink at $rounds_counter_file — rounds counter NOT reset" >&2
         elif [ -L "$rounds_state_dir" ]; then
           echo "zensu-log --tdd-begin: refusing to reset under symlinked state dir $rounds_state_dir — rounds counter NOT reset" >&2

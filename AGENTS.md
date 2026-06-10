@@ -61,9 +61,11 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     transcript helper would return live-changing Claude ids
     (`test-session-resolution.sh`).
   - `zensu-log.sh` — `--tdd-begin` clears the previous chain's terminal flags
-    (`implComplete`/`chainDone`/`codeReviewDone`/`selfReviewFixed`) and deletes
-    the `.stopblocks` budget, so a second TDD chain in the same session re-arms
-    the Stop backstop (`test-kiro-shim-stop.sh`).
+    (`implComplete`/`chainDone`/`codeReviewDone`/`selfReviewFixed`), deletes
+    the `.stopblocks` budget AND the auto-fix rounds counter, so a second TDD
+    chain in the same session re-arms the Stop backstop and starts at round 1;
+    value-consuming options fail fast on a missing value instead of hanging
+    (`test-kiro-shim-stop.sh`).
 - Hooks are wired in `agents/cli/zensu.json` (Kiro hooks live inside agent
   configs). `agents/cli/zensu-plm.json` intentionally has NO `@zensu` write-gate
   hook — that is the per-agent replacement for upstream's `agent_type` exemption.

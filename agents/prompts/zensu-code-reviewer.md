@@ -51,7 +51,7 @@ Create 5 tasks, mark each `in_progress` as you start it, `completed` when done:
 
 ### 1. conventions-checker — CLAUDE.md Compliance
 
-Check each file against CLAUDE.md rules:
+Check each file against project-convention rules (CLAUDE.md / AGENTS.md / steering):
 - Code comment language, logging framework, UI dialog patterns
 - Translation/i18n completeness, framework registration requirements
 - File size limits, timestamp formats, no AI watermarks

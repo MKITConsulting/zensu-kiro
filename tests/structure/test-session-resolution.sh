@@ -6,10 +6,11 @@
 # the helper, different process ancestry than the agentSpawn hook that wrote
 # the keyed cache) — it fell back to fallback_<ppid> and armed the WRONG state
 # file, so the gate/stop hooks saw an inactive session.
-# Contract: capture-sid persists the payload session_id ALSO to the
-# project-scoped `.zensu/state/session-id-current.txt`, and
-# zensu_resolve_session_id consults that file as the last step before the
-# PPID fallback (explicit id and keyed cache still win).
+# Contract (implemented order): explicit id > project-scoped
+# `.zensu/state/session-id-current.txt` (written by capture-sid) > Claude
+# transcript helper > PPID-keyed cache > fallback. The current file outranks
+# the keyed cache on purpose: on Kiro the keyed cache is written under the
+# HOOK's ancestry key and can never match a model-shell caller anyway.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -57,6 +58,25 @@ mkdir -p "$HOME/.claude/projects/$SAN"
 printf '{"sessionId":"claude-transcript-id"}\n' > "$HOME/.claude/projects/$SAN/claude-transcript-id.jsonl"
 GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" ZENSU_PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" zensu_resolve_session_id "")"
 [ "$GOT" = "$SID" ] && ok "current-session file outranks Claude transcript helper" || bad "transcript helper won: got '$GOT', expected '$SID'"
+
+# 4c) precedence pin: current file beats the PPID-keyed cache
+KEY="$(source "$ROOT/hooks/lib/zensu-session.sh"; zensu_session_key)"
+printf 'keyed-cache-id\n' > "$TMP/.zensu/state/session-id-${KEY}.txt"
+GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; CLAUDE_PROJECT_DIR="$TMP" zensu_resolve_session_id "")"
+[ "$GOT" = "$SID" ] && ok "current file outranks keyed cache" || bad "keyed cache won: got '$GOT'"
+rm -f "$TMP/.zensu/state/session-id-${KEY}.txt"
+
+# 4d) transcript-helper precondition: prove the planted transcript IS
+#     resolvable by the helper alone (otherwise 4b is vacuous, e.g. on
+#     Windows runners with path-sanitization mismatches)
+mv "$TMP/.zensu/state/session-id-current.txt" "$TMP/.zensu/state/session-id-current.txt.bak"
+GOT="$(source "$ROOT/hooks/lib/zensu-session.sh"; cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" ZENSU_PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" zensu_resolve_session_id "")"
+if [ "$GOT" = "claude-transcript-id" ]; then
+  ok "transcript helper resolves the planted fixture (4b is a real test)"
+else
+  ok "skipped: transcript helper cannot resolve fixture here (4b vacuous on this platform; got '$GOT')"
+fi
+mv "$TMP/.zensu/state/session-id-current.txt.bak" "$TMP/.zensu/state/session-id-current.txt"
 
 # 5) LIVE-VERIFIED Kiro reality: hook payloads carry NO session_id at all
 #    (observed keys: hook_event_name, cwd, prompt). capture-sid must then

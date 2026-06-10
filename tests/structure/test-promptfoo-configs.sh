@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# S16 — the promptfoo live-eval layer must be wired without running it:
+# S16 — the promptfoo live-eval layer must be wired without spending credits
+# (no kiro-cli, no network; the toy-app smoke runs plain `node --test`):
 # both suites exist, every file:// reference they make resolves, the custom
 # provider module loads and identifies itself, the file-side-effect asserts
 # are valid ESM, the runner is syntax-clean, and the toy-app fixture is a
@@ -23,7 +24,7 @@ for f in "$PF/diagnostics.yaml" "$PF/promptfooconfig.yaml"; do
   while IFS= read -r ref; do
     rel="${ref#file://}"
     [ -e "$PF/$rel" ] && ok "$(basename "$f"): $rel resolves" || bad "$(basename "$f"): $rel MISSING"
-  done < <(grep -oE 'file://[A-Za-z0-9_./-]+' "$f" | sed 's|file://./|file://|' | sort -u)
+  done < <(grep -oE 'file://[A-Za-z0-9_./-]+' "$f" | sed 's|file://\./|file://|' | sort -u)
 done
 
 # provider loads and identifies itself (no kiro-cli needed for module load)

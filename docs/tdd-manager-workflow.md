@@ -2,7 +2,7 @@
 
 End-to-end reference for the Zensu main-thread TDD workflow that drives strict Red/Green TDD with a PreToolUse phase gate.
 
-> **0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/zensu-tdd/SKILL.md` skill. `zensu-code-reviewer` is the only remaining subagent. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
+> **0.4.0 migration.** TDD execution moved from the `zensu-tdd-manager` *subagent* into the **main agent** (the subagent lost too much implementation context). The workflow now lives in the `skills/zensu-tdd/SKILL.md` skill. `zensu-code-reviewer` is the only subagent the TDD chain spawns directly. Sections 7–8 below describe the eval harness, whose port to the main-thread model is tracked as a follow-up.
 
 ---
 
@@ -90,7 +90,7 @@ flowchart TD
 | 5. Checkpoint | Run full test suite + linter, batch-update plan statuses | checkpoint log entry |
 | 6. Audit & Final Report | Build verification, coverage, mtime discipline, precondition drift audit, summary | audit log + final report |
 
-See [agents/tdd-manager.md](../skills/zensu-tdd/SKILL.md (the flow runs in the MAIN thread on this port; no tdd-manager subagent exists)) for the canonical phase definitions.
+See [skills/zensu-tdd/SKILL.md](../skills/zensu-tdd/SKILL.md) (upstream name: agents/tdd-manager.md — the flow runs in the MAIN thread on this port) for the canonical phase definitions.
 
 ---
 
@@ -224,7 +224,7 @@ These are the guardrails that protect users from common TDD failure modes. Each 
 | **4. Preconditions table in plan** | Plan template includes `## Preconditions` section listing every dependency + verification + user decision. | Auditable record of what was assumed present. |
 | **5. Per-step precondition gate** | If a step's IMPL plan references a precondition marked `skip`, the step gets `[!]` status and is bypassed. No partial test, no placeholder. | Skipped dependencies don't leak into half-broken implementations. |
 | **6. Phase 6 Precondition Drift Audit** | Greps the log for the contracted tool name versus the user-named substitute. Flags `PRECONDITION DRIFT — {tool}: decision={d}, actual={observed}` when reality diverges from the plan. | Catches silent substitution after the fact. |
-| **7. Claude-code CLI promptfoo provider** | Wrapper [scripts/claude-promptfoo-wrapper.sh](../tests/run-promptfoo.sh) invokes local `claude` as promptfoo `exec:` provider. APFS `cp -cR` per-test isolation. | Eval suite runs without an API key, isolated per test, deterministic. |
+| **7. Claude-code CLI promptfoo provider** | Wrapper [tests/run-promptfoo.sh](../tests/run-promptfoo.sh) (upstream: scripts/claude-promptfoo-wrapper.sh) drives a real `kiro-cli chat --no-interactive` through tests/promptfoo/providers/kiro-cli.mjs as promptfoo `exec:` provider. per-test throwaway project sandboxes. | Eval suite runs without an API key, isolated per test, deterministic. |
 | **8. Hook event mirror** | Opt-in via `ZENSU_HOOK_LOG`. Hook writes denial reason lines into the log when the gate fires. | Eval assertions can verify gate behavior without reading hook stderr. |
 | **9. FSM state enrichment** | Wrapper appends `===== fsm state =====` block (jq-scraped from state file) to its output. | Eval assertions see the phase history. |
 | **B. CLAUDE_AGENT_TYPE export** | Wrapper explicitly `export`s the env var before exec'ing claude. | Hook fires in subagent context where the harness doesn't propagate it natively. |
@@ -233,7 +233,7 @@ These are the guardrails that protect users from common TDD failure modes. Each 
 
 ## 9. Auto-Review Chain
 
-At Phase 6 the `/zensu-tdd` skill marks `--tdd-complete` and spawns `zensu-code-reviewer` itself. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh), registered on the `Stop` matcher in [hooks/hooks.json](../agents/cli/zensu.json (hooks are wired inside the Kiro agent config))) guarantees the chain even if that spawn is skipped: it blocks the main agent from ending its turn while `implComplete && !chainDone`. Reviewer findings are routed back into the main thread by [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) to be fixed in-thread under the still-active phase-gate, then the reviewer is re-spawned — looping until PASS or max rounds, after which the terminal `/zensu-self-review` stage runs (see below).
+At Phase 6 the `/zensu-tdd` skill marks `--tdd-complete` and spawns `zensu-code-reviewer` itself. The `Stop` hook ([hooks/stop-chain-enforcer.sh](../hooks/stop-chain-enforcer.sh), registered on the `Stop` matcher in [agents/cli/zensu.json](../agents/cli/zensu.json) (upstream wiring file: hooks/hooks.json — on Kiro hooks live inside the agent config)) guarantees the chain even if that spawn is skipped: it blocks the main agent from ending its turn while `implComplete && !chainDone`. Reviewer findings are routed back into the main thread by [hooks/post-review-tdd-delegate.sh](../hooks/post-review-tdd-delegate.sh) to be fixed in-thread under the still-active phase-gate, then the reviewer is re-spawned — looping until PASS or max rounds, after which the terminal `/zensu-self-review` stage runs (see below).
 
 ```mermaid
 flowchart LR
@@ -317,13 +317,13 @@ Non-Bash test invocations (rare; e.g. an MCP test runner) use the `via=tool_name
 
 ## See Also
 
-- [agents/tdd-manager.md](../skills/zensu-tdd/SKILL.md (the flow runs in the MAIN thread on this port; no tdd-manager subagent exists)) — canonical agent prompt
+- [skills/zensu-tdd/SKILL.md](../skills/zensu-tdd/SKILL.md) (upstream name: agents/tdd-manager.md — the flow runs in the MAIN thread on this port) — canonical agent prompt
 - [hooks/pre-edit-tdd-reminder.sh](../hooks/pre-edit-tdd-reminder.sh) — gate enforcement
 - [hooks/lib/zensu-tdd-phase.sh](../hooks/lib/zensu-tdd-phase.sh) — state file I/O
 - [hooks/lib/zensu-log.sh](../hooks/lib/zensu-log.sh) — log + phase helper CLI
-- [hooks/hooks.json](../agents/cli/zensu.json (hooks are wired inside the Kiro agent config)) — hook registrations
-- [scripts/claude-promptfoo-wrapper.sh](../tests/run-promptfoo.sh) — eval provider
-- [evals/tdd-manager-pretool/](../tests/promptfoo/ (live-eval layer of this port)) — 13 promptfoo scenarios verifying the discipline
+- [agents/cli/zensu.json](../agents/cli/zensu.json) (upstream wiring file: hooks/hooks.json — on Kiro hooks live inside the agent config) — hook registrations
+- [tests/run-promptfoo.sh](../tests/run-promptfoo.sh) (upstream: scripts/claude-promptfoo-wrapper.sh) — eval provider
+- [tests/promptfoo/](../tests/promptfoo/) (upstream: evals/tdd-manager-pretool/ — this port's live-eval layer) — the promptfoo scenarios of this port (D1-D4, D6 + B1-B6) verifying the discipline
 - [tests/structure/](../tests/structure/) — the tests/structure suite (one suite per test-*.sh) pinning the contract
 - [AGENTS.md (repo conventions)](../AGENTS.md) — repo conventions (English-only, version bumps, PR workflow)
 - [CHANGELOG.md](../CHANGELOG.md) — release history
