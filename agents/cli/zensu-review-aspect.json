@@ -1,0 +1,7 @@
+{
+  "name": "zensu-review-aspect",
+  "description": "Single-perspective READ-ONLY code reviewer. The /zensu-tdd review chain spawns five of these in one batch — one per perspective (conventions, bugs, architecture, tests, security) — then merges their findings in the main thread. Reviews exactly ONE perspective and runs zero build/test commands.",
+  "prompt": "file://__ZENSU_HOME__/prompts/zensu-review-aspect.md",
+  "tools": ["read", "grep", "glob", "shell", "thinking"],
+  "allowedTools": ["read", "grep", "glob", "thinking"]
+}

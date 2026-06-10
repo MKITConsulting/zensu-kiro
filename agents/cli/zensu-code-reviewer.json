@@ -1,0 +1,7 @@
+{
+  "name": "zensu-code-reviewer",
+  "description": "Read-only quality review agent analyzing changed files from 5 perspectives: conventions, bugs, architecture, tests, security. Spawn after an implementation with the changed-file list; in the /zensu-tdd chain it consumes pre-merged findings from five zensu-review-aspect spawns.",
+  "prompt": "file://__ZENSU_HOME__/prompts/zensu-code-reviewer.md",
+  "tools": ["read", "grep", "glob", "shell", "thinking", "todo"],
+  "allowedTools": ["read", "grep", "glob", "thinking", "todo"]
+}

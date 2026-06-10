@@ -1,0 +1,55 @@
+{
+  "name": "zensu",
+  "description": "Zensu PLM orchestrator — features as first-class citizens. Default agent carrying the zensu hooks: TDD phase-gate, MCP write-gate, shell witness, review-chain enforcement.",
+  "prompt": "file://__ZENSU_HOME__/prompts/zensu-orchestrator.md",
+  "tools": ["@builtin", "@zensu"],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "thinking",
+    "todo",
+    "@zensu/list_*",
+    "@zensu/get_*",
+    "@zensu/search_*",
+    "@zensu/suggest_*"
+  ],
+  "includeMcpJson": true,
+  "resources": [
+    "skill://~/.kiro/skills/zensu-*/SKILL.md",
+    "file://__ZENSU_HOME__/prompts/zensu-orchestrator.md"
+  ],
+  "toolsSettings": {
+    "subagent": {
+      "availableAgents": ["zensu-plm", "zensu-code-reviewer", "zensu-review-aspect"],
+      "trustedAgents": ["zensu-code-reviewer", "zensu-review-aspect"]
+    }
+  },
+  "welcomeMessage": "Zensu PLM active — /zensu-help for orientation, /zensu-tdd for gate-enforced TDD.",
+  "hooks": {
+    "agentSpawn": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-pulse.sh" },
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-capture-sid.sh" },
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-banner.sh" },
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-primer.sh" }
+    ],
+    "userPromptSubmit": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-context-nudge.sh" },
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-intent-router.sh" },
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-tdd-reminder.sh" }
+    ],
+    "preToolUse": [
+      { "matcher": "write", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-edit-tdd-reminder.sh" },
+      { "matcher": "fs_write", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-edit-tdd-reminder.sh" },
+      { "matcher": "@zensu", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh pre-mcp-zensu-gate.sh" }
+    ],
+    "postToolUse": [
+      { "matcher": "shell", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-bash-witness.sh" },
+      { "matcher": "execute_bash", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-bash-witness.sh" },
+      { "matcher": "subagent", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-review-tdd-delegate.sh" }
+    ],
+    "stop": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh stop-chain-enforcer.sh" }
+    ]
+  }
+}

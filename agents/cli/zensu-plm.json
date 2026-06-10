@@ -1,0 +1,18 @@
+{
+  "name": "zensu-plm",
+  "description": "Zensu Product Lifecycle Manager. ALWAYS delegate to this agent for ANY interaction with Zensu MCP tools — including simple CRUD operations like creating, listing, or updating features. Enforces workflow conventions, security-first ordering, and correct tool sequencing that direct tool calls would bypass. Covers feature tracking, security reviews, product bootstrapping, ghost scans, implementation, release readiness, tier management, user journeys, pulse sessions, wiki pages, and doc generation.",
+  "prompt": "file://__ZENSU_HOME__/prompts/zensu-plm.md",
+  "tools": ["read", "grep", "glob", "thinking", "todo", "@zensu"],
+  "allowedTools": [
+    "read",
+    "grep",
+    "glob",
+    "thinking",
+    "todo",
+    "@zensu/list_*",
+    "@zensu/get_*",
+    "@zensu/search_*",
+    "@zensu/suggest_*"
+  ],
+  "includeMcpJson": true
+}
