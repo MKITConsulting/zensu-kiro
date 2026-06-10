@@ -59,7 +59,7 @@ tests:
 
   - description: "[slow] B5 TDD happy path — /zensu-tdd drives RED→IMPL→GREEN on toy-app"
     vars:
-      q: "Run the zensu-tdd skill to implement a multiply(a, b) function in src/calc.js of this project, exported alongside add, with a test in test/. Follow the TDD protocol strictly."
+      q: "Run the zensu-tdd skill to implement a multiply(a, b) function in src/calc.js of this project, exported alongside add, with a test in test/. Follow the TDD protocol STRICTLY, including its logging contract: FIRST run the shell command bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin to arm the phase-gate, then declare EVERY phase before acting (bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --phase RED_WRITE --step s1, then --phase RED_RUN --step s1, --phase RED_FAIL --step s1 --reason ... after the failing run, --phase IMPL --step s1, --phase GREEN_RUN --step s1, --phase GREEN_PASS --step s1 — the --step id is REQUIRED on every marker, the gate matches IMPL against RED_FAIL per step). The preToolUse gate will DENY any write that violates the declared phase."
       scenario: b5-tdd
       fixture: toy-app
       timeoutMs: 900000

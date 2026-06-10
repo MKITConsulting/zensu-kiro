@@ -91,9 +91,15 @@ phase-marker cheat sheet.
 | Session banner/primer | **FULL ✓ live-verified** (`agentSpawn`; payload keys `hook_event_name`/`cwd`/`prompt`, fires on every spawn) | n/a |
 | Pulse session telemetry | **FULL ✓ live-verified (B6)** (plugin-root + MCP pulse tools) | **FULL** |
 
-Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite (D1–D4, D6) and
-behavior suite B1–B3+B6 green (`tests/promptfoo/results/`). Re-run
+Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite (D1–D4, D6)
+5/5, behavior suite B1–B3+B6 green, and the [slow] B5 full-TDD live run green (RED_FAIL→IMPL→GREEN_PASS in the FSM state, 18 witness-recorded shell commands) — `tests/promptfoo/results/`. Re-run
 `bash tests/run-promptfoo.sh diagnostics` after Kiro releases to re-verify.
+
+Known kiro-cli 2.6.1 host bug (observed via the B5 live eval): when a
+preToolUse hook **blocks** the same tool call repeatedly, the client can crash
+with a Bedrock `ValidationException: duplicate toolResult Ids`
+(`chat-cli/mod.rs:1905`) and end the session — the gate's deny itself works as
+designed; consider reporting upstream if you hit it interactively.
 
 ## Configuration
 
