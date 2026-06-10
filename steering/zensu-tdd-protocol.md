@@ -28,6 +28,10 @@ bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase GREEN_PASS --step <id>
 bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase REFACTOR   --step <id>
 ```
 
+`--step <id>` is REQUIRED on every marker: a marker without it records step
+`(none)`, and the gate matches IMPL against a prior RED_FAIL **per step id** —
+on mismatch the write is denied.
+
 ## Gate rules (write tool)
 
 | Phase | Production file | Test file |

@@ -7,6 +7,31 @@ description: Execute a feature specification with strict Red/Green Test-Driven D
 
 Execute a feature specification with strict Red/Green Test-Driven Development **in the main thread**. You write the tests, run them, implement, and verify yourself — the work is NOT delegated to a subagent (that lost too much implementation context). After implementation the auto-review chain fans out five read-only `zensu-review-aspect` subagents (one per perspective), merges their findings in this thread, and consolidates through a single `zensu-code-reviewer` spawn that routes the findings back to you to fix in-thread.
 
+## Mandatory command protocol (read this FIRST, follow on every step)
+
+The phase-gate and the witness only see these shell commands — prose compliance
+does not count. `{PLUGIN_ROOT}` is resolved in Phase 0 (`cat ~/.zensu/plugin-root`).
+
+1. **Arm once, before any edit**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-begin`
+   Until this runs the gate and witness are silent and the session records ZERO
+   discipline evidence — running TDD without arming is a protocol violation even
+   if every test is written first.
+2. **Declare every phase BEFORE acting — `--step <id>` is REQUIRED on every marker**:
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_WRITE --step <id>` → then write the test
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_RUN --step <id>` → then run it
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_FAIL --step <id> --reason "..."` → on the confirmed failure
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase IMPL --step <id>` → then edit production code
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_RUN --step <id>` → then run the test
+   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_PASS --step <id>` → on PASS
+   A marker without `--step` records step `(none)`, and the gate matches IMPL
+   against a prior RED_FAIL **per step id** — a mismatch means your write is DENIED.
+3. **Finish**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-complete` arms the
+   review-chain Stop backstop. `--chain-done` is owned by `/zensu-self-review` —
+   NEVER run it in the same turn as `--tdd-complete`.
+
+The phases below define work types, planning, logging, and the review chain in
+full — but the command sequence above is non-negotiable on every single step.
+
 ## When to Use
 
 - After the user approves a plan that adds executable code, the plan-approval hook (`plan-approved-delegate.sh`) asks the user whether to run the TDD flow and directs you here when they confirm (or on its fast-paths: an explicit TDD affirmation in the approval message, or non-interactive Auto Mode).
