@@ -1,0 +1,20 @@
+# zensu runtime artifacts (local-only)
+.zensu/*
+!.zensu/config.json
+
+# test outputs
+tests/results/
+tests/promptfoo/.artifacts/
+tests/promptfoo/results/
+
+# node
+node_modules/
+
+# secrets
+.env
+.env.*
+*.key
+*.pem
+
+# OS noise
+.DS_Store
