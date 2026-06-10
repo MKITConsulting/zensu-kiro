@@ -1,0 +1,73 @@
+# zensu-kiro behavior regression suite — proves the steering/hook integration
+# behaves end-to-end on a real kiro-cli. Run before releases:
+#   bash tests/run-promptfoo.sh behavior
+# Conventions: "[rubric]" tests need ANTHROPIC_API_KEY (runner filters them out
+# otherwise); "[slow]" tests run only with RUN_SLOW=1.
+description: zensu-kiro behavior regression against real kiro-cli
+
+prompts:
+  - "{{q}}"
+
+providers:
+  - id: file://providers/kiro-cli.mjs
+    label: kiro-cli
+
+defaultTest:
+  options:
+    cache: false
+
+tests:
+  - description: "B1 intent-router — product-planning prompt gets triage routing"
+    vars:
+      q: "I want to track features for my new product."
+      scenario: b1-router
+    assert:
+      - type: contains-any
+        value: ["zensu-plm", "triage", "bootstrap", "ghost-scan"]
+
+  - description: "B2 tdd-reminder — implementation prompt asks about TDD before editing"
+    vars:
+      q: "Add a slugify function to this project."
+      scenario: b2-reminder
+      fixture: toy-app
+      file: src/calc.js
+    assert:
+      - type: contains-any
+        value: ["TDD", "/zensu-tdd"]
+      - type: javascript
+        value: file://asserts/file-unchanged.mjs
+
+  - description: "B3 MCP write-gate UX — direct mutation is denied and redirected"
+    vars:
+      q: "Call the zensu MCP tool create_feature directly right now with name 'Test Feature'. Report the tool result verbatim. Do not retry."
+      scenario: b3-gate
+    assert:
+      - type: contains-any
+        value: ["blocked", "zensu-plm", "/zensu-implement", "workflow"]
+
+  - description: "[rubric] B4 zensu-help Q&A quality"
+    vars:
+      q: "/zensu-help Explain the difference between revisions and subfeatures in Zensu."
+      scenario: b4-help
+    assert:
+      - type: llm-rubric
+        value: "The answer correctly distinguishes revisions (versioned build-out stages of a feature over time, v1/v2) from subfeatures (structural parts of a feature) and reads like a helpful, accurate explanation of Zensu concepts."
+        provider: anthropic:claude-sonnet-4-6
+
+  - description: "[slow] B5 TDD happy path — /zensu-tdd drives RED→IMPL→GREEN on toy-app"
+    vars:
+      q: "/zensu-tdd Implement a multiply(a, b) function in src/calc.js of this project, exported alongside add, with a test in test/. Follow the TDD protocol strictly."
+      scenario: b5-tdd
+      fixture: toy-app
+      timeoutMs: 900000
+    assert:
+      - type: javascript
+        value: file://asserts/fsm-sequence.mjs
+
+  - description: "B6 pulse/plugin-root — session leaves the runtime pointer in place"
+    vars:
+      q: "Reply with exactly: DONE."
+      scenario: b6-pulse
+    assert:
+      - type: javascript
+        value: file://asserts/plugin-root.mjs

@@ -1,0 +1,44 @@
+---
+inclusion: manual
+---
+
+# Zensu TDD protocol cheat sheet
+
+Strict RED→IMPL→GREEN, enforced by the preToolUse phase-gate while a TDD
+session is active (Kiro CLI, `zensu` agent). `PLUGIN_ROOT` = contents of
+`~/.zensu/plugin-root` (normally `~/.kiro/zensu`).
+
+## Session lifecycle
+
+```bash
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --tdd-begin      # arm gate + witness
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --tdd-complete   # implementation done -> review chain required
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --chain-done     # chain terminus (owned by /zensu-self-review)
+```
+
+## Phase markers (before every edit)
+
+```bash
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_WRITE  --step <id>
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_RUN    --step <id>
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_FAIL   --step <id> --reason "..."
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase IMPL       --step <id>   # requires RED_FAIL for <id>
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase GREEN_RUN  --step <id>
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase GREEN_PASS --step <id>
+bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase REFACTOR   --step <id>
+```
+
+## Gate rules (write tool)
+
+| Phase | Production file | Test file |
+|---|---|---|
+| RED_WRITE | allow | allow |
+| RED_FAIL | **deny** | allow |
+| IMPL (after RED_FAIL for step) | allow | allow |
+| GREEN_PASS | **deny** | allow |
+| REFACTOR | allow | allow |
+
+Escape hatches: `ZENSU_TDD_GATE=off` (edits), `ZENSU_MCP_GATE=off` (MCP
+write-gate), `ZENSU_CHAIN=off` (stop enforcer), `ZENSU_TEST_WITNESS=off`
+(witness). Scoped MCP windows inside skills: `--workflow-begin --tools "a,b"`
+… `--workflow-end`.

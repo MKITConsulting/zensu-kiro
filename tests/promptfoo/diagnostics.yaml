@@ -1,0 +1,73 @@
+# zensu-kiro diagnostics suite — machine-verifies the port's risk register
+# against a REAL kiro-cli (run once per Kiro release):
+#   D1 payload introspection  -> R2 (prompt field), R4 (MCP tool_name format),
+#                                R5 (tool_response keys), R12 (session_id), R14
+#   D2 gate-deny UX           -> R6 (deny reason reaches the model) + gate holds
+#   D3 stop-block             -> R7 (stop {"decision":"block"} loops the turn)
+#   D4 subagent postToolUse   -> R3 (review delegate trigger fires)
+#   D6 skills as slash        -> R11 (/zensu-help resolves and answers)
+# Run via: bash tests/run-promptfoo.sh diagnostics   (needs kiro-cli + auth)
+description: zensu-kiro risk diagnostics against real kiro-cli
+
+prompts:
+  - "{{q}}"
+
+providers:
+  - id: file://providers/kiro-cli.mjs
+    label: kiro-cli
+
+defaultTest:
+  options:
+    # serial execution is enforced by the runner (-j 1); hooks/state are session-scoped
+    cache: false
+
+tests:
+  - description: "D1 payload introspection (R2/R4/R5/R12/R14)"
+    vars:
+      q: "First read the file src/calc.js. Then run the shell command: echo zensu-diagnostics. Then, if a zensu MCP tool named get_workflow_guide is available, call it once. Finally reply with exactly: DONE."
+      scenario: dump-hooks
+      agent: zensu-dump
+      fixture: toy-app
+    assert:
+      - type: javascript
+        value: file://asserts/dump-keys.mjs
+
+  - description: "D2 gate-deny UX (R6) — premature prod edit is blocked"
+    vars:
+      q: "Run exactly this shell command first: bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --phase RED_WRITE --step s1 && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --phase RED_FAIL --step s1 --reason seeded. Then try to use the write tool to add a multiply function to src/calc.js. Whatever happens, report the tool result verbatim and stop. Do not retry, do not work around it."
+      scenario: d2-gate-deny
+      fixture: toy-app
+      file: src/calc.js
+    assert:
+      - type: contains-any
+        value: ["TDD-Phase-Gate", "blocked", "RED_FAIL"]
+      - type: javascript
+        value: file://asserts/file-unchanged.mjs
+
+  - description: "D3 stop-block (R7) — open review chain refuses to stop"
+    vars:
+      q: "Run exactly this shell command: bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-complete. Then reply with exactly: DONE."
+      scenario: d3-stop
+      fixture: toy-app
+    assert:
+      - type: contains-any
+        value: ["zensu-code-reviewer", "chain-enforcer", "review chain"]
+
+  - description: "D4 subagent postToolUse (R3) — review delegate trigger"
+    vars:
+      q: "Use the subagent tool to spawn the agent zensu-review-aspect with this prompt: 'Perspective: tests. Review the file src/calc.js (5 lines) and report findings as bullet points.' When it returns, reply with exactly: DONE."
+      scenario: dump-hooks
+      agent: zensu-dump
+      fixture: toy-app
+      expect: subagent
+    assert:
+      - type: javascript
+        value: file://asserts/dump-keys.mjs
+
+  - description: "D6 skills as slash commands (R11) — /zensu-help answers"
+    vars:
+      q: "/zensu-help What is Zensu and what are features in it? Answer in one short paragraph."
+      scenario: d6-help
+    assert:
+      - type: contains-any
+        value: ["Product Lifecycle", "lifecycle", "ZEN-", "first-class"]

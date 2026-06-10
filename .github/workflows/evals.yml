@@ -1,0 +1,55 @@
+name: Live evals (promptfoo x kiro-cli)
+
+# Manual-dispatch only — drives a REAL kiro-cli and costs credits. Never part
+# of the deterministic CI gate. Requires the KIRO_API_KEY secret (headless
+# auth); ANTHROPIC_API_KEY optionally enables the [rubric] tests.
+# If headless auth proves restricted for your account tier, run the suites
+# locally instead: bash tests/run-promptfoo.sh diagnostics|behavior
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Which suite to run'
+        required: true
+        type: choice
+        options:
+          - diagnostics
+          - behavior
+      run_slow:
+        description: 'Include [slow] tests (full TDD run)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install kiro-cli
+        run: |
+          set -euo pipefail
+          curl -fsSL https://kiro.dev/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run suite
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUN_SLOW: ${{ inputs.run_slow && '1' || '0' }}
+        run: bash tests/run-promptfoo.sh "${{ inputs.suite }}"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptfoo-${{ inputs.suite }}
+          path: tests/promptfoo/results/
+          if-no-files-found: ignore
