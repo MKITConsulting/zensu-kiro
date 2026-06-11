@@ -168,8 +168,9 @@ merge_mcp() {
   [ "$DRY" -eq 1 ] && return 0
   MCP_FILE_ENV="$MCP_FILE" MCP_URL_ENV="$MCP_URL" FORCE_ENV="$FORCE" node -e '
     const fs = require("fs");
-    // Git Bash hands env vars to native node unconverted: /c/Users/... is not
-    // a Windows fs path. Normalize for fs ops only; emitted strings stay POSIX.
+    // Git Bash / MSYS env conversion is heuristic: path-like env values may
+    // reach native node in EITHER form (/c/... untouched, or converted to
+    // C:/...). Normalize for fs ops only; emitted strings stay POSIX.
     const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
     const file = norm(process.env.MCP_FILE_ENV), url = process.env.MCP_URL_ENV;
     let j = {};
@@ -232,8 +233,10 @@ path_allowed() { # $1=abs path
 write_manifest() { # $1=manifest file $2=list file $3=mcp file $4=mcp url
   MF="$1" LIST="$2" MCPF="$3" MCPU="$4" VERSION_VAL="$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" node -e '
     const fs = require("fs");
-    // fs targets normalized for Windows-native node; the RECORDED mcpFile and
-    // file paths stay in the POSIX form bash compares against on uninstall.
+    // fs targets normalized for Windows-native node. The recorded file paths
+    // come from the LIST file CONTENT (never env-converted, stays POSIX); the
+    // recorded mcpFile may arrive MSYS-converted — uninstall treats it as a
+    // merged-or-not flag only and never compares or dereferences it as a path.
     const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
     const lines = fs.readFileSync(norm(process.env.LIST), "utf8").trim().split("\n").filter(Boolean);
     const files = {};
@@ -272,11 +275,12 @@ if [ "$UNINSTALL" -eq 1 ]; then
     fi
   done
   if [ -n "$REC_MCP_FILE" ]; then
-    case "$REC_MCP_FILE" in
-      *..*) say "REFUSE  mcp unmerge target contains parent traversal: $REC_MCP_FILE" ;;
-      "$KIRO_DIR/settings/"*) unmerge_mcp "$REC_MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}" ;;
-      *) say "REFUSE  mcp unmerge target outside $KIRO_DIR/settings: $REC_MCP_FILE" ;;
-    esac
+    # The recorded mcpFile is a merged-or-not FLAG only. The unmerge target is
+    # ALWAYS the active scope's canonical settings file: a crafted manifest can
+    # never point the unmerge elsewhere, and Windows path-form drift (MSYS env
+    # conversion records C:/...8.3 forms while bash compares /tmp/... mounts)
+    # cannot break the match. The recorded URL still guards foreign entries.
+    unmerge_mcp "$MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}"
   fi
   if [ "$DRY" -ne 1 ]; then
     rm -f "$SCOPE_MANIFEST"
