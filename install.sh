@@ -168,7 +168,10 @@ merge_mcp() {
   [ "$DRY" -eq 1 ] && return 0
   MCP_FILE_ENV="$MCP_FILE" MCP_URL_ENV="$MCP_URL" FORCE_ENV="$FORCE" node -e '
     const fs = require("fs");
-    const file = process.env.MCP_FILE_ENV, url = process.env.MCP_URL_ENV;
+    // Git Bash hands env vars to native node unconverted: /c/Users/... is not
+    // a Windows fs path. Normalize for fs ops only; emitted strings stay POSIX.
+    const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
+    const file = norm(process.env.MCP_FILE_ENV), url = process.env.MCP_URL_ENV;
     let j = {};
     if (fs.existsSync(file)) {
       // An existing-but-malformed settings file must never be replaced by a
@@ -201,7 +204,8 @@ unmerge_mcp() { # $1=mcp file $2=recorded url
   [ "$DRY" -eq 1 ] && return 0
   MCP_FILE_ENV="$1" MCP_URL_ENV="$2" node -e '
     const fs = require("fs");
-    const file = process.env.MCP_FILE_ENV, url = process.env.MCP_URL_ENV;
+    const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
+    const file = norm(process.env.MCP_FILE_ENV), url = process.env.MCP_URL_ENV;
     let j;
     try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { process.exit(3); }
     if (j && j.mcpServers && j.mcpServers.zensu && j.mcpServers.zensu.url === url) {
@@ -228,10 +232,13 @@ path_allowed() { # $1=abs path
 write_manifest() { # $1=manifest file $2=list file $3=mcp file $4=mcp url
   MF="$1" LIST="$2" MCPF="$3" MCPU="$4" VERSION_VAL="$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" node -e '
     const fs = require("fs");
-    const lines = fs.readFileSync(process.env.LIST, "utf8").trim().split("\n").filter(Boolean);
+    // fs targets normalized for Windows-native node; the RECORDED mcpFile and
+    // file paths stay in the POSIX form bash compares against on uninstall.
+    const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
+    const lines = fs.readFileSync(norm(process.env.LIST), "utf8").trim().split("\n").filter(Boolean);
     const files = {};
     for (const l of lines) { const i = l.indexOf("\t"); files[l.slice(0, i)] = l.slice(i + 1); }
-    fs.writeFileSync(process.env.MF, JSON.stringify({
+    fs.writeFileSync(norm(process.env.MF), JSON.stringify({
       version: process.env.VERSION_VAL,
       mcpFile: process.env.MCPF,
       mcpUrl: process.env.MCPU,

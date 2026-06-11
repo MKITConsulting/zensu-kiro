@@ -30,7 +30,8 @@ done
 # provider loads and identifies itself (no kiro-cli needed for module load)
 if [ -f "$PF/providers/kiro-cli.mjs" ]; then
   ID="$(node -e '
-    import(process.argv[1]).then(m => {
+    const { pathToFileURL } = require("url");
+    import(pathToFileURL(process.argv[1]).href).then(m => {
       const P = m.default;
       const p = new P({ id: "kiro-cli", config: {} });
       console.log(p.id());

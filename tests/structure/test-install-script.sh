@@ -183,11 +183,16 @@ bash "$INSTALL" --uninstall >/dev/null 2>&1
 rm -f "$PRE"; bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
 # 7f) sha256sum fallback: with `shasum` hidden from PATH the installer must
-#     still hash correctly (idempotent NOOP re-run proves real hashes)
+#     still hash correctly (idempotent NOOP re-run proves real hashes).
+#     Skipped on MSYS/Git Bash: a symlinked single-dir PATH sandbox is not
+#     reproducible there (.exe resolution + MSYS runtime deps) — the fallback
+#     shell logic is platform-independent and proven on Linux CI.
 SHIMBIN="$TMP/shimbin"; mkdir -p "$SHIMBIN"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) : ;; *)
 for t in node bash sed mv mkdir mktemp rm cat cut printf find sort dirname basename chmod cp tr grep sha256sum kiro-cli; do
   P="$(command -v "$t" 2>/dev/null)" && [ -n "$P" ] && ln -s "$P" "$SHIMBIN/$t" 2>/dev/null
 done
+esac
 if [ -x "$SHIMBIN/sha256sum" ]; then
   bash "$INSTALL" --uninstall --force >/dev/null 2>&1
   PATH="$SHIMBIN" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
@@ -200,7 +205,7 @@ if [ -x "$SHIMBIN/sha256sum" ]; then
   M2="$(mt "$HOME/.kiro/agents/zensu.json")"
   [ "$M1" = "$M2" ] && ok "fallback re-run is NOOP (hashes comparable)" || bad "fallback re-run rewrote files"
 else
-  ok "skipped: no sha256sum binary on this machine (fallback covered on Linux CI)"
+  ok "skipped: sha256sum PATH sandbox not reproducible here (fallback covered on Linux CI)"
 fi
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
@@ -220,7 +225,9 @@ node -e '
   m.files[process.argv[2]] = "0".repeat(64);
   fs.writeFileSync(process.argv[1], JSON.stringify(m,null,2));
 ' "$WS/.kiro/zensu-manifest.json" "$SENT2"
-grep -q "$SENT2" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
+# Match the path SUFFIX, not "$SENT2" verbatim: MSYS converts argv paths for
+# native node, so on Windows the planted key is C:/... while $SENT2 is /c/...
+grep -q "hooks/pre-mcp-zensu-gate.sh" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
 ( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
 [ -f "$SENT2" ] && ok "workspace uninstall cannot delete user-scope files (scope-confined)" || bad "workspace manifest reached into \$HOME/.kiro (deleted gate hook!)"
 [ -f "$WS/.kiro/agents/zensu.json" ] && bad "workspace uninstall left workspace agents" || ok "workspace uninstall removed workspace files"
