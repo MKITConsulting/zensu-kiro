@@ -104,7 +104,7 @@ node -e '
   m.files["../outside.txt"] = "0".repeat(64);
   fs.writeFileSync(p, JSON.stringify(m,null,2));
 ' "$HOME/.kiro/zensu/manifest.json" "$SENTINEL"
-bash "$INSTALL" --uninstall --force >/dev/null 2>&1
+UOUT="$(bash "$INSTALL" --uninstall --force 2>&1)"
 [ -f "$SENTINEL" ] && ok "uninstall refuses paths outside allowed roots" || bad "uninstall deleted out-of-root file"
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && bad "runtime survived uninstall" || ok "runtime removed"
 [ -f "$HOME/.kiro/agents/zensu.json" ] && bad "agent survived uninstall" || ok "agents removed"
@@ -112,13 +112,19 @@ UNMCP="$(node -e '
   const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
   console.log(!(j.mcpServers||{}).zensu && (j.mcpServers||{}).other ? "yes" : "no");
 ' "$HOME/.kiro/settings/mcp.json" 2>/dev/null)"
-[ "$UNMCP" = "yes" ] && ok "uninstall removed zensu mcp entry, kept foreign" || bad "uninstall mcp handling wrong"
+if [ "$UNMCP" = "yes" ]; then ok "uninstall removed zensu mcp entry, kept foreign"; else
+  bad "uninstall mcp handling wrong"
+  { printf 'DIAG installer output:\n%s\nDIAG mcp.json after uninstall:\n' "$UOUT"; cat "$HOME/.kiro/settings/mcp.json" 2>/dev/null; } >&2
+fi
 [ -f "$HOME/.zensu/config.json" ] && ok "user config untouched by uninstall" || bad "uninstall deleted user config"
 
 # 7) custom https --mcp-url round-trips through uninstall
-bash "$INSTALL" --scope user --no-default --mcp-url "https://self.example/mcp" >/dev/null 2>&1
+MOUT="$(bash "$INSTALL" --scope user --no-default --mcp-url "https://self.example/mcp" 2>&1)"
 CUR_URL="$(node -e 'console.log((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu||{}).url||"")' "$HOME/.kiro/settings/mcp.json")"
-[ "$CUR_URL" = "https://self.example/mcp" ] && ok "custom https url merged" || bad "custom url merge wrong: $CUR_URL"
+if [ "$CUR_URL" = "https://self.example/mcp" ]; then ok "custom https url merged"; else
+  bad "custom url merge wrong: $CUR_URL"
+  printf 'DIAG merge output:\n%s\n' "$MOUT" >&2
+fi
 bash "$INSTALL" --uninstall >/dev/null 2>&1
 CUR_URL="$(node -e 'console.log(((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers||{}).zensu||{}).url||"")' "$HOME/.kiro/settings/mcp.json")"
 [ -z "$CUR_URL" ] && ok "custom url entry removed on uninstall" || bad "custom url entry left behind: $CUR_URL"
