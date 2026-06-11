@@ -30,6 +30,10 @@ All notable changes to zensu-kiro are documented here. The format follows
   rebuilds), array-shaped state files recover to objects, `--tdd-reset`
   clears the vanilla freeze.
 
+### Changed
+
+- **`/zensu:ghost-scan` no longer creates the v1 baseline revision client-side — it is minted server-side by `ghost_apply` (zensu-monorepo #266).** Removed Phase 5b from the ghost-scan skill (replaced with a server-side note), dropped the agent's ghost-scan baseline workflow step + Important Rule (renumbered the trailing rule), and trimmed `create_revision` from the skill's workflow-gate tool list and MCP-tools table. Keeping the client step would 400 against a #266 backend (its baseline is `planned`; `create_revision` requires the prior revision `released`/`superseded`). Ported from zensu-claude-code #109; release-coupled to the #266 deploy.
+
 ## [0.1.0] - 2026-06-10
 
 Initial Kiro port of the zensu plugin (content base: zensu-claude-code v0.8.4;
