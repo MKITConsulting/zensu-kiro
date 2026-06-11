@@ -8,8 +8,8 @@ Zensu makes **features first-class citizens** across the software lifecycle.
 This workspace uses the zensu-kiro plugin: the `zensu` MCP server, the
 `zensu-*` skills (`/zensu-help` lists them), and the `zensu-*` subagents.
 
-- **Features** carry `ZEN-XXX` IDs; reference them in commit messages as
-  `[ZEN-001]`. Lifecycle `planned → in-progress → testing → released`, gated by
+- **Features** carry `KEY-N` ids; reference them in commit messages as
+  `[ZEN-42]`. Lifecycle `planned → in-progress → testing → released`, gated by
   security score, docs completeness, and journey health.
 - Route ANY Zensu MCP interaction through the **`zensu-plm`** subagent or the
   matching skill (`/zensu-bootstrap`, `/zensu-ghost-scan`, `/zensu-implement`,
