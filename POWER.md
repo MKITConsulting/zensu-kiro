@@ -1,7 +1,7 @@
 ---
 name: zensu
 displayName: Zensu PLM
-description: Product Lifecycle Manager — features as first-class citizens. Feature tracking with ZEN-XXX IDs, strict RED→GREEN TDD with a phase-gated edit guard, five-perspective review chain, security reviews and STRIDE threat models, greenfield bootstrap and brownfield ghost-scan, user journeys, tiers, and release readiness.
+description: Product Lifecycle Manager — features as first-class citizens. Feature tracking with KEY-N feature ids, strict RED→GREEN TDD with a phase-gated edit guard, five-perspective review chain, security reviews and STRIDE threat models, greenfield bootstrap and brownfield ghost-scan, user journeys, tiers, and release readiness.
 keywords: [zensu, plm, feature, roadmap, tdd, security-review, ghost-scan, bootstrap, journey, tier, release]
 metadata:
   version: 0.1.0
@@ -52,7 +52,7 @@ Follow `steering/zensu-conventions.md` for every task in this workspace:
 route Zensu MCP work through `zensu-plm` or the matching skill; for code
 changes plan first and ask about the strict TDD flow (`/zensu-tdd`); run the
 review chain to completion after implementations; reference features as
-`[ZEN-XXX]` in commits. With `hooks.tddImplementation=false` the same
+`[KEY-N]` in commits. With `hooks.tddImplementation=false` the same
 `/zensu-tdd` workflow runs in vanilla implementation mode (ask about the
 "Zensu workflow (vanilla implementation + review chain)" instead): no
 RED→GREEN ceremony, while the evidence audits and the review chain stay

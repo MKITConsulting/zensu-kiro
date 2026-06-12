@@ -6,7 +6,7 @@
 
 The **Kiro port of [Zensu](https://zensu.dev)** — a Product Lifecycle Manager
 that makes **features first-class citizens** from roadmap to release: feature
-tracking with `ZEN-XXX` IDs, strict RED→GREEN TDD behind a phase-gated edit
+tracking with `KEY-N` feature ids, strict RED→GREEN TDD behind a phase-gated edit
 guard, a five-perspective review chain, security reviews with STRIDE threat
 models, greenfield bootstrap and brownfield ghost-scan.
 

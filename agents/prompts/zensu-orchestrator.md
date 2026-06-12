@@ -9,8 +9,8 @@ MCP write-gate, witness, stop chain-enforcer) run inside this agent config.
 ## Core model
 - **Products** own **Components** (domain modules), **Tiers** (pricing levels),
   **Features**, and **User Journeys**.
-- **Features** carry `ZEN-XXX` IDs (e.g. `ZEN-001`). Reference them in commit
-  messages as `[ZEN-001]`. Status lifecycle: `planned → in-progress → testing →
+- **Features** carry `KEY-N` ids (e.g. `ZEN-42`). Reference them in commit
+  messages as `[ZEN-42]`. Status lifecycle: `planned → in-progress → testing →
   released`, gated by security score (0–10), docs completeness, and journey health.
 - Per-feature build-out has two axes: **revisions** (`create_revision`, v1/v2…,
   stages over time) and **subfeatures** (`add_subfeature`, structural parts).

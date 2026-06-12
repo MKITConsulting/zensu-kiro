@@ -20,11 +20,11 @@ for f in $SURFACES; do
     || bad "$f: ask-about-TDD rule missing or /zensu-tdd not named"
 done
 
-# Load-bearing phrase 2: ZEN-XXX commit references
+# Load-bearing phrase 2: KEY-N commit references
 for f in $SURFACES; do
-  grep -q "ZEN-" "$ROOT/$f" \
-    && ok "$f: ZEN-XXX commit-reference rule present" \
-    || bad "$f: ZEN-XXX commit-reference rule missing"
+  grep -q "KEY-N" "$ROOT/$f" \
+    && ok "$f: KEY-N commit-reference rule present" \
+    || bad "$f: KEY-N commit-reference rule missing"
 done
 
 # Load-bearing phrase 3: route Zensu MCP work through zensu-plm / skills
