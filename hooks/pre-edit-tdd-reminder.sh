@@ -122,8 +122,22 @@ fi
 # one class per line, same order as $FILES. The zensu (exempt) class is
 # realpath-validated too — a symlink planted under .zensu/ that resolves
 # outside loses the exemption.
+SD="$(dirname "$STATE_FILE")"
 SD2="$(dirname "$(zensu_rounds_counter_file "$SESSION_ID")")"
-CLASSES="$(printf '%s' "$FILES" | SD="$(dirname "$STATE_FILE")" SD2="$SD2" PD="${CLAUDE_PROJECT_DIR:-.}" node -e '
+PD="${CLAUDE_PROJECT_DIR:-.}"
+# MSYS/Git-Bash host (Windows): the shell auto-converts SOME POSIX-form paths
+# (env values) to native form when spawning native node, while stdin content
+# passes through untouched — the two sides of the prefix comparison would then
+# never collapse to one spelling. Convert ALL inputs to mixed Windows form
+# explicitly; on POSIX hosts cygpath does not exist and this is a no-op.
+if command -v cygpath >/dev/null 2>&1; then
+  FILES_CONV="$(printf '%s\n' "$FILES" | cygpath -m -f - 2>/dev/null)"
+  [ -n "$FILES_CONV" ] && FILES="$FILES_CONV"
+  SD="$(cygpath -m "$SD" 2>/dev/null || printf '%s' "$SD")"
+  SD2="$(cygpath -m "$SD2" 2>/dev/null || printf '%s' "$SD2")"
+  PD="$(cygpath -m "$PD" 2>/dev/null || printf '%s' "$PD")"
+fi
+CLASSES="$(printf '%s' "$FILES" | SD="$SD" SD2="$SD2" PD="$PD" node -e '
   const path = require("path");
   const fs = require("fs");
   const lownorm = p => path.posix.normalize(String(p).replace(/\\/g, "/").replace(/^\/([a-zA-Z])(\/|$)/, "$1:$2")).toLowerCase();
