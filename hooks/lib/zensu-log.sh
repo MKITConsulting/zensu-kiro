@@ -40,6 +40,30 @@ case "${1:-}" in
     tdd_write_phase "$session_val" "$step_val" "$phase_val" "$reason_val"
     exit $?
     ;;
+  --mode)
+    session_val=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --session)
+          [ $# -ge 2 ] || { echo "zensu-log.sh: $1 needs a value" >&2; exit 2; }
+          session_val="$2"
+          shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [ -z "$session_val" ]; then
+      export ZENSU_OWN_CMD="${ZENSU_OWN_CMD:-bash $0 --mode}"
+      source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-session.sh"
+      session_val="$(zensu_resolve_session_id "${CLAUDE_SESSION_ID:-}")"
+    fi
+    source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
+    if [ "$(tdd_vanilla_mode "$(tdd_state_file "$session_val")")" = "true" ]; then
+      echo "vanilla"
+    else
+      echo "strict"
+    fi
+    exit 0
+    ;;
   --tdd-begin|--tdd-complete|--chain-done|--code-review-done|--self-review-fixed|--tdd-reset|--workflow-begin|--workflow-end)
     verb="$1"
     session_val=""
@@ -64,33 +88,67 @@ case "${1:-}" in
     source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
     case "$verb" in
       --tdd-begin)
-        tdd_set_flag "$session_val" active true
-        tdd_begin_rc=$?
+        # Freeze the implementation mode for THIS session (upstream-synced):
+        # hooks.tddImplementation is read ONCE here and persisted into the
+        # state file's `vanilla` flag — the gate and the post-review hook read
+        # only the state flag, so config flips mid-session change nothing.
+        # Written unconditionally in BOTH directions so a re-begin under
+        # changed config re-freezes from the then-current value. The freeze
+        # lands BEFORE the active flag and a freeze-write failure ABORTS
+        # activation: the gate must never observe an armed session carrying a
+        # stale mode.
+        if zensu_hook_enabled tddImplementation; then
+          want_vanilla=false
+        else
+          want_vanilla=true
+        fi
+        if ! tdd_set_flag "$session_val" vanilla "$want_vanilla"; then
+          echo "zensu-log --tdd-begin: mode freeze write failed — session NOT activated" >&2
+          tdd_set_flag "$session_val" active false 2>/dev/null || true
+          tdd_begin_rc=1
+        else
+          tdd_set_flag "$session_val" active true
+          tdd_begin_rc=$?
+          if [ "$tdd_begin_rc" -eq 0 ]; then
+            if [ "$(tdd_vanilla_mode "$(tdd_state_file "$session_val")")" = "true" ]; then
+              echo "mode: vanilla"
+            else
+              echo "mode: strict"
+            fi
+          else
+            echo "zensu-log --tdd-begin: active flag write failed — session NOT activated" >&2
+            tdd_set_flag "$session_val" active false 2>/dev/null || true
+          fi
+        fi
         # Kiro delta (upstream-sync candidate, documented in AGENTS.md): a NEW
         # chain in the SAME session must re-arm the Stop backstop — clear the
         # previous chain's terminal flags and its consumed stop-block budget,
-        # or the enforcer no-ops for every chain after the first.
-        tdd_set_flag "$session_val" implComplete false
-        tdd_set_flag "$session_val" chainDone false
-        tdd_set_flag "$session_val" codeReviewDone false
-        tdd_set_flag "$session_val" selfReviewFixed false
-        stopblocks_file="$(tdd_state_file "$session_val").stopblocks"
-        stopblocks_dir="$(dirname "$stopblocks_file")"
-        if [ -L "$stopblocks_file" ] || [ -L "$stopblocks_dir" ] || [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
-          echo "zensu-log --tdd-begin: refusing stop-budget reset through symlinked path — NOT reset" >&2
-        else
-          rm -f -- "$stopblocks_file"
-        fi
-        rounds_counter_file="$(zensu_rounds_counter_file "$session_val")"
-        rounds_state_dir="$(dirname "$rounds_counter_file")"
-        if [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
-          echo "zensu-log --tdd-begin: refusing resets under symlinked .zensu — NOT reset" >&2
-        elif [ -L "$rounds_counter_file" ]; then
-          echo "zensu-log --tdd-begin: refusing to delete through symlink at $rounds_counter_file — rounds counter NOT reset" >&2
-        elif [ -L "$rounds_state_dir" ]; then
-          echo "zensu-log --tdd-begin: refusing to reset under symlinked state dir $rounds_state_dir — rounds counter NOT reset" >&2
-        else
-          rm -f -- "$rounds_counter_file"
+        # or the enforcer no-ops for every chain after the first. Gated on a
+        # SUCCESSFUL begin: a failed (re-)begin must not half-reset the
+        # previous chain's state while that chain stays armed.
+        if [ "$tdd_begin_rc" -eq 0 ]; then
+          tdd_set_flag "$session_val" implComplete false
+          tdd_set_flag "$session_val" chainDone false
+          tdd_set_flag "$session_val" codeReviewDone false
+          tdd_set_flag "$session_val" selfReviewFixed false
+          stopblocks_file="$(tdd_state_file "$session_val").stopblocks"
+          stopblocks_dir="$(dirname "$stopblocks_file")"
+          if [ -L "$stopblocks_file" ] || [ -L "$stopblocks_dir" ] || [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
+            echo "zensu-log --tdd-begin: refusing stop-budget reset through symlinked path — NOT reset" >&2
+          else
+            rm -f -- "$stopblocks_file"
+          fi
+          rounds_counter_file="$(zensu_rounds_counter_file "$session_val")"
+          rounds_state_dir="$(dirname "$rounds_counter_file")"
+          if [ -L "${CLAUDE_PROJECT_DIR:-.}/.zensu" ]; then
+            echo "zensu-log --tdd-begin: refusing resets under symlinked .zensu — NOT reset" >&2
+          elif [ -L "$rounds_counter_file" ]; then
+            echo "zensu-log --tdd-begin: refusing to delete through symlink at $rounds_counter_file — rounds counter NOT reset" >&2
+          elif [ -L "$rounds_state_dir" ]; then
+            echo "zensu-log --tdd-begin: refusing to reset under symlinked state dir $rounds_state_dir — rounds counter NOT reset" >&2
+          else
+            rm -f -- "$rounds_counter_file"
+          fi
         fi
         exit "$tdd_begin_rc"
         ;;

@@ -46,3 +46,13 @@ Escape hatches: `ZENSU_TDD_GATE=off` (edits), `ZENSU_MCP_GATE=off` (MCP
 write-gate), `ZENSU_CHAIN=off` (stop enforcer), `ZENSU_TEST_WITNESS=off`
 (witness). Scoped MCP windows inside skills: `--workflow-begin --tools "a,b"`
 … `--workflow-end`.
+
+## Vanilla implementation mode
+
+`hooks.tddImplementation:false` (read ONCE at `--tdd-begin`, frozen into the
+state file; the command echoes `mode: strict|vanilla`, re-query with
+`zensu-log.sh --mode`): the phase markers and the gate matrix above do NOT
+apply — the gate passes through, tests are at your discretion. Edit-tool
+writes to `.zensu/state/` stay denied in both modes (unless the gate itself is
+bypassed via `ZENSU_TDD_GATE=off`). Still enforced: witness, Phase 5/6
+evidence audits, review chain + `/zensu-self-review`, Stop-hook guarantee.

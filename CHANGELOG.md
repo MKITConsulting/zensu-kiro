@@ -6,6 +6,30 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Vanilla implementation mode (`hooks.tddImplementation`, default `true`):
+  setting it to `false` makes `/zensu-tdd` implement WITHOUT the RED→GREEN
+  ceremony — no FSM phase markers, the preToolUse edit gate passes through,
+  tests at the agent's discretion — while plan/log artifacts, the Phase 5/6
+  evidence audits (build, coverage, witness cross-check), the review fan-out →
+  `zensu-code-reviewer` → auto-fix loop → `/zensu-self-review`, and the
+  Stop-hook chain guarantee stay enforced. The mode is frozen per session at
+  `--tdd-begin` (echoes `mode: strict|vanilla`; query via `zensu-log.sh
+  --mode`) — config flips mid-session change nothing. Ported from
+  zensu-claude-code PR #112.
+- TDD phase-gate hardening that travels with the freeze: while a session is
+  active, edit-tool writes touching the session-state files (`.zensu/state/`
+  and the rounds-counter dir, normalized + realpath-resolved — dot-segments,
+  case variants, traversal, MSYS vs native Windows drive spellings,
+  `TDD_STATE_DIR` overrides, and symlink aliases all collapse to the same
+  deny) are blocked in BOTH modes unless the gate itself is bypassed via
+  `ZENSU_TDD_GATE=off`; state flags change only through `zensu-log.sh`.
+- State-lib robustness (upstream-synced): `--phase` writes preserve unknown
+  state keys (the `vanilla` flag and scoped MCP workflow windows survive
+  rebuilds), array-shaped state files recover to objects, `--tdd-reset`
+  clears the vanilla freeze.
+
 ## [0.1.0] - 2026-06-10
 
 Initial Kiro port of the zensu plugin (content base: zensu-claude-code v0.8.4;

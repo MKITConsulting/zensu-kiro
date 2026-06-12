@@ -40,6 +40,10 @@ For any task that adds or modifies executable code:
    preToolUse phase-gate blocks production edits until a failing test exists for
    the step; declare each phase with `zensu-log.sh --phase …`. On **no**:
    implement directly.
+4. With `hooks.tddImplementation=false` the same `/zensu-tdd` workflow runs in
+   vanilla implementation mode (ask about the "Zensu workflow (vanilla
+   implementation + review chain)" instead): no RED→GREEN ceremony, while the
+   evidence audits and the review chain stay enforced.
 
 ## After implementing: run the review chain to completion
 When a TDD session finishes implementation, the review chain MUST run before you
