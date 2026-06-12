@@ -31,7 +31,11 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
   it). Hook-level deltas vs upstream:
   - `pre-edit-tdd-reminder.sh` — accepts `write`/`fs_write`/`fsWrite`, extracts
     `tool_input.path`, envelope scan only for `apply_patch`/pathless payloads
-    (pinned by `test-gate-kiro-payloads.sh`).
+    (pinned by `test-gate-kiro-payloads.sh`). Path handling is multi-file: one
+    batch classification pass (state/zensu/other, normalized + realpath) feeds
+    the ordered checks state-deny (both modes) → vanilla bypass (frozen state
+    flag) → zensu exemption → FSM rules (pinned by
+    `test-tdd-vanilla-mode.sh`).
   - `pre-mcp-zensu-gate.sh` — `@zensu/`/`zensu___`/`zensu__`/legacy strip chain,
     foreign tools pass (pinned by `test-mcp-gate-kiro-names.sh`).
   - `session-start-capture-sid.sh` — synthesizes a session id when the payload
@@ -61,14 +65,31 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     transcript helper would return live-changing Claude ids
     (`test-session-resolution.sh`).
   - `zensu-tdd-phase.sh` — adds `zensu_rounds_counter_file <session>`, the
-    single owner of the rounds-counter path consumed by the delegate's bump
-    and `--tdd-begin`'s reset (`test-kiro-shim-stop.sh`).
+    single owner of the rounds-counter path consumed by the delegate's bump,
+    `--tdd-begin`'s reset, and the edit gate's state-deny set
+    (`test-kiro-shim-stop.sh`). Coupling to mind on upstream re-syncs:
+    `--phase`/flag writes are preserve-all (unknown keys survive rebuilds —
+    that is what keeps the `vanilla` freeze alive), while
+    `_tdd_write_clear_critical` resets an ENUMERATED flag list — any new
+    per-session flag added upstream must also be added to that clear list or
+    it silently survives `--tdd-reset`; and `zensu_rounds_counter_file`'s
+    session-id sanitization must stay character-for-character identical to
+    `tdd_state_file`'s, or the counter path diverges from the state-file
+    naming and silently leaves the gate's deny set.
   - `zensu-log.sh` — `--tdd-begin` clears the previous chain's terminal flags
     (`implComplete`/`chainDone`/`codeReviewDone`/`selfReviewFixed`), deletes
     the `.stopblocks` budget AND the auto-fix rounds counter, so a second TDD
     chain in the same session re-arms the Stop backstop and starts at round 1;
     value-consuming options fail fast on a missing value instead of hanging
-    (`test-kiro-shim-stop.sh`).
+    (`test-kiro-shim-stop.sh`). The vanilla-mode freeze (`--tdd-begin` persists
+    the `vanilla` flag per `hooks.tddImplementation` and echoes
+    `mode: strict|vanilla`) and the `--mode` query verb are upstream-synced
+    behavior, not Kiro deltas (`test-tdd-vanilla-mode.sh`). Open upstream-sync
+    candidate (deferred by review, cosmetic): combine the freeze+active writes
+    into ONE locked critical section in the state lib and echo the mode from
+    the computed value instead of a state re-read — closes a
+    concurrent-double-begin echo race; today's two-write sequence stays
+    coherent (last-freeze-wins) and both partial-failure branches disarm.
 - Hooks are wired in `agents/cli/zensu.json` (Kiro hooks live inside agent
   configs). `agents/cli/zensu-plm.json` intentionally has NO `@zensu` write-gate
   hook — that is the per-agent replacement for upstream's `agent_type` exemption.

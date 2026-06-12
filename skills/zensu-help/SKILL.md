@@ -59,7 +59,7 @@ Before answering questions in the right column, `Read` the source file in the le
 | Plugin version | `VERSION` + `POWER.md` (frontmatter `metadata.version`) |
 | Declared skills/agents/hooks wiring | `agents/cli/zensu.json` (hooks live inside the agent config) + `skills/` dirs |
 | MCP server URL, MCP tool surface | `mcp.json` + `hooks/lib/zensu-mcp-tools.sh` (read/mutation classification) |
-| Hook flags (`chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`, `tddReminder`, `intentRouter`, `mcpGate`, `selfReview`) | `README.md` § Configuration + `config.example.json` |
+| Hook flags (`chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`, `tddReminder`, `tddImplementation`, `intentRouter`, `mcpGate`, `selfReview`) | `README.md` § Configuration + `config.example.json` |
 | Context-nudge settings (`context.*`) | `config.example.json` + `hooks/user-prompt-context-nudge.sh` (inert on Kiro — see README fidelity matrix) |
 | Config resolution order, `ZENSU_CONFIG` precedence | `hooks/lib/zensu-config.sh` (header comment) |
 | Environment variables (`ZENSU_API_KEY`, `ZENSU_TDD_GATE`, `ZENSU_TEST_WITNESS`, `ZENSU_CHAIN`, `ZENSU_MCP_GATE`, `KIRO_API_KEY`) | `README.md` § Configuration + § Headless |

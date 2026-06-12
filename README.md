@@ -105,11 +105,26 @@ designed; consider reporting upstream if you hit it interactively.
 
 `~/.zensu/config.json` (seeded from [config.example.json](config.example.json),
 shared schema with the Claude Code and Codex ports): `hooks.*` toggles
-(`sessionBanner`, `tddReminder`, `intentRouter`, `mcpGate`, `autoFix`,
-`autoFixMaxRounds`, `selfReview`, `chainEnforcer`, …),
+(`sessionBanner`, `tddReminder`, `tddImplementation`, `intentRouter`, `mcpGate`,
+`autoFix`, `autoFixMaxRounds`, `selfReview`, `chainEnforcer`, …),
 `logging.timestampStyle` (`wall|relative|none`). Env escape hatches:
 `ZENSU_TDD_GATE=off`, `ZENSU_MCP_GATE=off`, `ZENSU_CHAIN=off`,
 `ZENSU_TEST_WITNESS=off`.
+
+`hooks.tddImplementation:false` switches `/zensu-tdd` to **vanilla
+implementation mode**: no RED→GREEN ceremony, no FSM phase markers, the
+preToolUse edit gate passes through (edit-tool writes to `.zensu/state/` stay
+denied while a session is active, unless the gate itself is bypassed via
+`ZENSU_TDD_GATE=off`), tests at the agent's discretion. Everything
+else stays enforced — plan/log artifacts, Phase 5/6 audits (build, coverage,
+witness evidence cross-check), the review fan-out → `zensu-code-reviewer` →
+auto-fix loop → `/zensu-self-review`, and the Stop-hook chain guarantee. The
+mode is frozen per session at `--tdd-begin` (the command echoes `mode: strict`
+/ `mode: vanilla`; query later with `zensu-log.sh --mode`) — config flips
+mid-session change nothing. Note: a project-local `.zensu/config.json` checked
+into a repository pre-selects the mode for every clone (overlay wins per key) —
+the session banner and the `mode:` echo at `--tdd-begin` are the per-session
+signals to watch for an unexpected downgrade. Default `true` (strict TDD).
 
 ## Tests
 

@@ -18,6 +18,7 @@ export TDD_STATE_DIR="$TMP/state"
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
+export ZENSU_CONFIG="$TMP/no-such-config.json"
 SID="s08-witness"
 SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
 LOG="$ROOT/hooks/lib/zensu-log.sh"

@@ -52,7 +52,11 @@ Follow `steering/zensu-conventions.md` for every task in this workspace:
 route Zensu MCP work through `zensu-plm` or the matching skill; for code
 changes plan first and ask about the strict TDD flow (`/zensu-tdd`); run the
 review chain to completion after implementations; reference features as
-`[KEY-N]` in commits.
+`[KEY-N]` in commits. With `hooks.tddImplementation=false` the same
+`/zensu-tdd` workflow runs in vanilla implementation mode (ask about the
+"Zensu workflow (vanilla implementation + review chain)" instead): no
+RED→GREEN ceremony, while the evidence audits and the review chain stay
+enforced.
 
 ## Fidelity note (IDE vs CLI)
 
