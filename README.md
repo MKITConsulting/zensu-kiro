@@ -72,7 +72,9 @@ command for the audit cross-check, and the **stop chain-enforcer** refuses to
 end the turn (`{"decision":"block"}`) until the five-perspective review chain
 and `/zensu-self-review` have completed. See
 [steering/zensu-tdd-protocol.md](steering/zensu-tdd-protocol.md) for the
-phase-marker cheat sheet.
+phase-marker cheat sheet. Setting `hooks.tddImplementation=false` switches to
+**vanilla mode** — the RED→GREEN ceremony and phase-gate are dropped while the
+review chain and evidence audits stay enforced (the vanilla branch below).
 
 ```mermaid
 flowchart TD
@@ -86,7 +88,10 @@ flowchart TD
         C -->|"/zensu-implement"| D["Load Feature Context"]
         PLAIN["Plan first, then ask<br/>(userPromptSubmit TDD reminder —<br/>no plan-approval event in Kiro)"] -->|"invoke skill on yes"| E
         D --> E["/zensu-tdd skill<br/>(main thread)"]
-        E --> RED["RED — write failing test"]
+        E --> MODE{"hooks.tddImplementation?"}
+        MODE -->|"true · strict (default)"| RED["RED — write failing test"]
+        MODE -->|"false · vanilla (opt-in):<br/>no RED→GREEN, gate passes through"| VAN["IMPL — write code directly<br/>(tests at discretion)"]
+        VAN --> K
         RED --> IMPL["IMPL — minimum code"]
         IMPL --> GREEN{"GREEN — test passes?"}
         GREEN -->|"No (≤ 3 retries)"| IMPL
@@ -116,6 +121,8 @@ flowchart TD
     style A2 fill:#4a9eff,color:#fff
     style PLAIN fill:#4a9eff,color:#fff
     style E fill:#ff6b6b,color:#fff
+    style MODE fill:#fff3bf,color:#1e293b
+    style VAN fill:#b197fc,color:#fff
     style GATE fill:#888,color:#fff
     style STOP fill:#888,color:#fff
     style K fill:#ffa94d,color:#fff
