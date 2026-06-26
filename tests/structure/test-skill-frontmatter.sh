@@ -12,7 +12,7 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
-EXPECTED="zensu-bootstrap zensu-ghost-scan zensu-implement zensu-tdd zensu-plan-review zensu-pr-team-review zensu-security-review zensu-self-review zensu-reset-review-limit zensu-pulse zensu-help"
+EXPECTED="zensu-bootstrap zensu-ghost-scan zensu-implement zensu-tdd zensu-plan-review zensu-pr-fix-findings zensu-pr-team-review zensu-security-review zensu-self-review zensu-reset-review-limit zensu-pulse zensu-help"
 
 for name in $EXPECTED; do
   F="$ROOT/skills/$name/SKILL.md"
