@@ -1,7 +1,9 @@
 # zensu-kiro Windows installer wrapper. Kiro CLI is Windows-native, but the
 # zensu hooks are bash scripts — this wrapper locates GIT BASH (never WSL's
 # System32 bash, which would install into the WSL filesystem invisible to the
-# Windows Kiro CLI) and delegates to install.sh with all arguments.
+# Windows Kiro CLI) and delegates to install.sh with all arguments. Zensu data
+# access goes through the local `zensu` CLI (installed separately:
+# curl -fsSL https://zensu.dev/install.sh | sh, then `zensu auth login`).
 $ErrorActionPreference = "Stop"
 
 $candidates = @(

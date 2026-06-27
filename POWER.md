@@ -11,16 +11,18 @@ metadata:
 
 Zensu makes **features first-class citizens** across the whole software
 lifecycle — from roadmap to release. Installing this Power gives the Kiro IDE
-the Zensu MCP server plus the steering conventions; one onboarding command
-adds the 11 `zensu-*` skills and 3 subagents shared by the IDE **and** the
-Kiro CLI (where the enforced TDD/MCP gates live).
+the steering conventions; one onboarding command adds the 11 `zensu-*` skills
+and 3 subagents shared by the IDE **and** the Kiro CLI (where the enforced
+TDD/CLI write-gates live). Zensu data access goes through the typed `zensu`
+CLI, installed separately (`curl -fsSL https://zensu.dev/install.sh | sh`, then
+`zensu auth login`).
 
 ## What this Power adds
 
-- **MCP server `zensu`** (`https://mcp.zensu.dev/mcp`, auto-registered from
-  `mcp.json` on Power install; OAuth runs in the browser on first call) —
-  60+ tools: feature CRUD, security, bootstrap, ghost-scan, journeys, tiers,
-  wiki, knowledge, pulse.
+- **Typed `zensu` CLI** (install with `curl -fsSL https://zensu.dev/install.sh | sh`,
+  then `zensu auth login` — OAuth runs in the browser on first call) — commands
+  for feature CRUD, security, bootstrap, ghost-scan, journeys, tiers, wiki,
+  knowledge, and pulse (`zensu --help`). The plugin drives Zensu through it.
 - **Steering** — `steering/zensu-conventions.md` (always-on conventions) and
   `steering/zensu-tdd-protocol.md` (manual cheat sheet, `#zensu-tdd-protocol`).
 - **Skills** (after onboarding step 2) — `/zensu-bootstrap`, `/zensu-ghost-scan`,
@@ -33,15 +35,15 @@ Kiro CLI (where the enforced TDD/MCP gates live).
 
 ## Onboarding
 
-1. Confirm the `zensu` MCP server is connected (Powers panel registered it in
-   `~/.kiro/settings/mcp.json`; the first `@zensu` call triggers the OAuth
-   browser flow).
+1. Install the `zensu` CLI and sign in — `curl -fsSL https://zensu.dev/install.sh | sh`,
+   then `zensu auth login` (the first call triggers the OAuth browser flow).
+   The plugin drives all Zensu data access through this CLI.
 2. From the Power checkout directory run:
    `bash install.sh --scope user --no-default`
    — installs the skills, subagents, and the hook runtime to `~/.kiro/` (IDE
    and CLI share these surfaces).
 3. Optional, Kiro CLI: `kiro-cli agent set-default zensu` — enables the
-   enforced tier (TDD phase-gate, MCP write-gate, witness, stop chain-enforcer)
+   enforced tier (TDD phase-gate, CLI write-gate, witness, stop chain-enforcer)
    in every CLI session.
 4. Smoke check: ask "What is Zensu?" (routes to `/zensu-help`) and confirm
    `/zensu-tdd` appears in the slash menu.
@@ -49,7 +51,7 @@ Kiro CLI (where the enforced TDD/MCP gates live).
 ## Steering instructions
 
 Follow `steering/zensu-conventions.md` for every task in this workspace:
-route Zensu MCP work through `zensu-plm` or the matching skill; for code
+route Zensu CLI work through `zensu-plm` or the matching skill; for code
 changes plan first and ask about the strict TDD flow (`/zensu-tdd`); run the
 review chain to completion after implementations; reference features as
 `[KEY-N]` in commits. With `hooks.tddImplementation=false` the same

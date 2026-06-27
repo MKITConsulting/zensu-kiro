@@ -1,6 +1,6 @@
 # Plan: Re-home zensu-kiro from hosted MCP to the typed `zensu` CLI (+ narrowed write-gate)
 
-**Status:** proposed · **Owner:** TBD · **Created:** 2026-06-26
+**Status:** executed · **Owner:** TBD · **Created:** 2026-06-26
 **Reference:** `zensu-claude-code` PR #117 (the original MCP→CLI re-home) and PR #128 (the *narrowed* CLI write-gate — this plan ports the **post-#128** gate, not the pre-narrow one).
 
 ## 1. Why

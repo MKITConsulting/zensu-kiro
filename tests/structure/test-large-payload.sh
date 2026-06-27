@@ -46,20 +46,20 @@ env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh < "$BIG" >"$TMP/o
 RC=$?
 [ "$RC" -eq 2 ] && ok "TDD gate denies 3MiB prod write" || bad "TDD gate rc=$RC on 3MiB payload (expected 2) — large-payload bypass"
 
-# 2) MCP write-gate must still DENY a mutation carrying a 3 MiB argument
+# 2) CLI write-gate must still DENY a 3 MiB `zensu` mutation command
 node -e '
   const fs = require("fs");
   const filler = "y".repeat(3 * 1024 * 1024);
   fs.writeFileSync(process.argv[1], JSON.stringify({
-    tool_name: "@zensu/create_feature",
+    tool_name: "shell",
     session_id: "f02-large",
     cwd: process.argv[2],
-    tool_input: { name: "X", description: filler }
+    tool_input: { command: "zensu features create --name X --description " + filler }
   }));
 ' "$BIG" "$TMP"
-env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-mcp-zensu-gate.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
+env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-bash-zensu-gate.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
 RC=$?
-[ "$RC" -eq 2 ] && ok "MCP gate denies 3MiB mutation payload" || bad "MCP gate rc=$RC on 3MiB payload (expected 2) — large-payload bypass"
+[ "$RC" -eq 2 ] && ok "CLI gate denies 3MiB mutation command" || bad "CLI gate rc=$RC on 3MiB payload (expected 2) — large-payload bypass"
 
 # 3) stop enforcer must still block with a 3 MiB stop payload field
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --tdd-complete --session "$SID" >/dev/null 2>&1

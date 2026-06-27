@@ -6,6 +6,24 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Re-homed from the hosted MCP server to the typed `zensu` CLI** (ports
+  `zensu-claude-code` #117 + the narrowed write-gate #128). The plugin now drives
+  Zensu through `zensu <noun> <verb>` commands instead of `@zensu/*` MCP tools:
+  `mcp.json` is deleted and `includeMcpJson` is off in every agent; all
+  data-touching skills + the `zensu-plm`/orchestrator agents + onboarding docs +
+  installers use the CLI (`curl -fsSL https://zensu.dev/install.sh | sh`,
+  `zensu auth login`). The MCP write-gate `pre-mcp-zensu-gate.sh` is retired and
+  replaced by `pre-bash-zensu-gate.sh` (PreToolUse on `shell`/`execute_bash` via
+  the kiro-shim), backed by a new `hooks/lib/zensu-cli-map.sh`; the gate keeps the
+  post-#128 narrowing (reads / `--help` / inline `ZENSU_MCP_GATE=off` / localhost
+  targets pass) and is hardened to read large payloads via stdin so a 3 MiB
+  command cannot bypass it. The hosted MCP server stays live for the Zensu web app
+  but is no longer wired into the plugin. Tests: new `test-bash-zensu-gate.sh`;
+  `test-mcp-gate-kiro-names.sh` retired; `test-hooks-wiring` / `test-json-validity`
+  / `test-large-payload` / `test-install-script` updated for the CLI surface.
+
 ### Added
 
 - Vanilla implementation mode (`hooks.tddImplementation`, default `true`):

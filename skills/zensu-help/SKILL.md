@@ -10,7 +10,7 @@ Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the ze
 ## When to Use
 
 - User asks "what is X?", "how does Y work?", "where is Z configured?"
-- User asks about plugin internals: agents, hooks, FSM, auto-fix loop, MCP server
+- User asks about plugin internals: agents, hooks, FSM, auto-fix loop, the `zensu` CLI write-gate
 - User asks about Zensu concepts: features, KEY-N ids, tiers, journeys, classifications
 - User asks "what changed in version X" or "how do I disable hook Y"
 - User is unsure which other skill (`bootstrap` vs `ghost-scan` vs `implement`) applies to their situation
@@ -58,7 +58,7 @@ Before answering questions in the right column, `Read` the source file in the le
 |---|---|
 | Plugin version | `VERSION` + `POWER.md` (frontmatter `metadata.version`) |
 | Declared skills/agents/hooks wiring | `agents/cli/zensu.json` (hooks live inside the agent config) + `skills/` dirs |
-| MCP server URL, MCP tool surface | `mcp.json` + `hooks/lib/zensu-mcp-tools.sh` (read/mutation classification) |
+| CLI command surface / install; plugin tool wiring | `README.md` § CLI + `zensu --help` + `agents/cli/zensu.json` (the MCP server stays live for the Zensu web app but is no longer wired into the plugin) |
 | Hook flags (`chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`, `tddReminder`, `tddImplementation`, `intentRouter`, `mcpGate`, `selfReview`) | `README.md` § Configuration + `config.example.json` |
 | Context-nudge settings (`context.*`) | `config.example.json` + `hooks/user-prompt-context-nudge.sh` (inert on Kiro — see README fidelity matrix) |
 | Config resolution order, `ZENSU_CONFIG` precedence | `hooks/lib/zensu-config.sh` (header comment) |
