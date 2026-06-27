@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S13 — every JSON artifact must parse: CLI agent templates (after substituting
-# the __ZENSU_HOME__ placeholder), mcp.json, and config.example.json.
+# the __ZENSU_HOME__ placeholder) and config.example.json.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -10,7 +10,7 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
-for f in "$ROOT/mcp.json" "$ROOT/config.example.json"; do
+for f in "$ROOT/config.example.json"; do
   if node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$f" 2>/dev/null; then
     ok "$(basename "$f") parses"
   else
@@ -30,12 +30,8 @@ for f in "$ROOT"/agents/cli/*.json; do
 done
 [ "$FOUND" -eq 1 ] || bad "no agents/cli/*.json present"
 
-# mcp.json must define the zensu remote server by URL
-node -e '
-  const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-  const z = j.mcpServers && j.mcpServers.zensu;
-  if (!z || typeof z.url !== "string" || !z.url.startsWith("https://")) process.exit(1);
-' "$ROOT/mcp.json" 2>/dev/null && ok "mcp.json defines https zensu server" || bad "mcp.json lacks zensu https url"
+# mcp.json is retired (CLI re-home) — assert it is gone, not present.
+[ ! -f "$ROOT/mcp.json" ] && ok "mcp.json retired (CLI re-home)" || bad "mcp.json still present after CLI re-home"
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

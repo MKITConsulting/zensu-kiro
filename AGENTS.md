@@ -16,9 +16,14 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
 `zensu-codex` (OpenAI Codex CLI port). One repo serves BOTH hosts:
 
 - **Kiro IDE (>= 0.9)** installs it as a Power (`POWER.md` at the repo root,
-  `mcp.json` auto-registered, `steering/` shipped with the Power).
+  `steering/` shipped with the Power).
 - **Kiro CLI (>= 2.6)** has no native plugin system — `install.sh` copies
-  skills, agents, the hook runtime, and merges the MCP config.
+  skills, agents, and the hook runtime.
+
+Both hosts drive Zensu through the typed `zensu` CLI, installed separately
+(`curl -fsSL https://zensu.dev/install.sh | sh`, then `zensu auth login`); the
+hosted MCP server stays live for the web app but is no longer wired into the
+plugin.
 
 ## Architecture invariants
 
@@ -36,8 +41,13 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     the ordered checks state-deny (both modes) → vanilla bypass (frozen state
     flag) → zensu exemption → FSM rules (pinned by
     `test-tdd-vanilla-mode.sh`).
-  - `pre-mcp-zensu-gate.sh` — `@zensu/`/`zensu___`/`zensu__`/legacy strip chain,
-    foreign tools pass (pinned by `test-mcp-gate-kiro-names.sh`).
+  - `pre-bash-zensu-gate.sh` — the CLI write-gate, wired on the `shell`/
+    `execute_bash` tool: parses `zensu <noun> <verb>` invocations from the
+    command (anchored on `basename == zensu`), maps each via
+    `hooks/lib/zensu-cli-map.sh`, and classifies through the same SoT
+    (`hooks/lib/zensu-mcp-tools.sh`) — reads and unknown subcommands pass,
+    main-thread mutations are denied unless a skill workflow is active (pinned by
+    `test-mcp-gate-kiro-names.sh`).
   - `session-start-capture-sid.sh` — synthesizes a session id when the payload
     carries none and persists `session-id-current.txt` (pinned by
     `test-session-resolution.sh`).
@@ -50,10 +60,11 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     would silently disarm the gates on large payloads; pinned by
     `test-large-payload.sh`).
   Load-bearing host assumption: Kiro hook matchers are EXACT tool-name matches;
-  the delegate is intentionally wired under both `subagent` and `use_subagent`
-  and the gate under `write`/`fs_write`/`fsWrite` — a host matching aliases
-  transitively would double-fire (the round counter is mutex-locked, but budget
-  would count double; re-verify via the diagnostics suite on Kiro upgrades).
+  the delegate is intentionally wired under both `subagent` and `use_subagent`,
+  the TDD edit reminder under `write`/`fs_write`/`fsWrite`, and the CLI
+  write-gate under `shell`/`execute_bash` — a host matching aliases transitively
+  would double-fire (the round counter is mutex-locked, but budget would count
+  double; re-verify via the diagnostics suite on Kiro upgrades).
 - `hooks/lib/*.sh` are upstream copies (plus the port-owned `zensu-runtime.sh`).
   Fix bugs upstream first, then re-sync. **Documented lib deltas** (upstream-sync
   candidates, each pinned by a structure test):
@@ -91,7 +102,7 @@ base: `zensu-claude-code` (Claude Code plugin). Engine-adaptation precedent:
     concurrent-double-begin echo race; today's two-write sequence stays
     coherent (last-freeze-wins) and both partial-failure branches disarm.
 - Hooks are wired in `agents/cli/zensu.json` (Kiro hooks live inside agent
-  configs). `agents/cli/zensu-plm.json` intentionally has NO `@zensu` write-gate
+  configs). `agents/cli/zensu-plm.json` intentionally has NO CLI write-gate
   hook — that is the per-agent replacement for upstream's `agent_type` exemption.
 - Agent prompt bodies live ONCE in `agents/prompts/*.md`; the IDE variants in
   `agents/ide/*.md` must keep identical bodies (pinned by
@@ -116,8 +127,13 @@ together; for a manual hotfix follow the invariant by hand.
   against a real `kiro-cli` (logged-in or `KIRO_API_KEY`); costs credits; never
   part of the deterministic gate.
 
-## MCP tool classification
+## CLI command classification
 
-`hooks/lib/zensu-mcp-tools.sh` is the single source of truth (synced from
-upstream). When the Zensu MCP server gains a tool, classify it upstream and
-re-sync; the write-gate default-denies anything not on the read allowlist.
+The plugin drives Zensu through the typed `zensu` CLI (the hosted MCP server
+still exists for the web app, but is no longer wired into the plugin). Two
+upstream-synced libs work together: `hooks/lib/zensu-mcp-tools.sh` is the single
+source of truth for read/mutation classification, and `hooks/lib/zensu-cli-map.sh`
+maps each `zensu <noun> <verb>` form to its canonical tool name. When the Zensu
+backend gains an operation, classify the tool name AND map its CLI verb upstream,
+then re-sync; the CLI write-gate (`pre-bash-zensu-gate.sh`) resolves each command
+via the map and default-denies anything not on the read allowlist.

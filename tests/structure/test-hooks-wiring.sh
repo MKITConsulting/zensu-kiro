@@ -38,17 +38,19 @@ CHECK="$(ZJSON="$Z" ROOT="$ROOT" node -e '
   out.push("scripts_count " + new Set(scripts).size);
   const pre = (hooks.preToolUse || []).map(h => h.matcher || "");
   out.push("pre_write " + (pre.includes("write") && pre.includes("fs_write") && pre.includes("fsWrite")));
-  out.push("pre_zensu " + pre.includes("@zensu"));
+  out.push("pre_clibash " + (pre.includes("shell") && pre.includes("execute_bash")));
+  out.push("clibash_script " + (hooks.preToolUse || []).some(h => (h.matcher === "shell" || h.matcher === "execute_bash") && /pre-bash-zensu-gate\.sh/.test(h.command || "")));
   const post = (hooks.postToolUse || []).map(h => h.matcher || "");
   out.push("post_shell " + (post.includes("shell") && post.includes("execute_bash")));
   // live-verified: Kiro reports the spawn tool as "use_subagent" in payloads,
   // so the delegate must be wired under BOTH the canonical and the alias name.
   out.push("post_subagent " + (post.includes("subagent") && post.includes("use_subagent")));
   out.push("no_cache " + !JSON.stringify(hooks).includes("cache_ttl_seconds"));
+  out.push("no_mcpgate " + !JSON.stringify(hooks).includes("pre-mcp-zensu-gate"));
   out.push("prompt " + (typeof j.prompt === "string" && j.prompt.includes("zensu-orchestrator.md")));
   out.push("skills " + (Array.isArray(j.resources) && j.resources.some(r => typeof r === "string" && r.startsWith("skill://"))));
   out.push("subagents " + ((((j.toolsSettings||{}).subagent||{}).availableAgents||[]).join(",")));
-  out.push("mcpjson " + (j.includeMcpJson === true));
+  out.push("mcpjson " + (j.includeMcpJson === false));
   console.log(out.join("\n"));
 ' 2>&1)"
 
@@ -58,7 +60,9 @@ printf '%s' "$CHECK" | grep -q "^shimmed true" && ok "every hook command routes 
 SC="$(printf '%s' "$CHECK" | sed -n 's/^scripts_count //p')"
 [ "${SC:-0}" -ge 10 ] && ok "wired script set non-empty ($SC scripts)" || bad "wired script extraction empty/thin ($SC)"
 printf '%s' "$CHECK" | grep -q "^pre_write true" && ok "preToolUse covers write + fs_write + fsWrite" || bad "preToolUse write matchers incomplete"
-printf '%s' "$CHECK" | grep -q "^pre_zensu true" && ok "preToolUse covers @zensu (MCP gate)" || bad "preToolUse @zensu matcher missing"
+printf '%s' "$CHECK" | grep -q "^pre_clibash true" && ok "preToolUse covers shell + execute_bash (CLI gate)" || bad "preToolUse CLI-gate matchers missing"
+printf '%s' "$CHECK" | grep -q "^clibash_script true" && ok "CLI gate wired to pre-bash-zensu-gate.sh" || bad "CLI gate not wired to pre-bash-zensu-gate.sh"
+printf '%s' "$CHECK" | grep -q "^no_mcpgate true" && ok "retired pre-mcp-zensu-gate is no longer wired" || bad "pre-mcp-zensu-gate still wired"
 printf '%s' "$CHECK" | grep -q "^post_shell true" && ok "postToolUse covers shell + execute_bash (witness)" || bad "postToolUse shell matchers missing"
 printf '%s' "$CHECK" | grep -q "^post_subagent true" && ok "postToolUse covers subagent (review delegate)" || bad "postToolUse subagent matcher missing"
 printf '%s' "$CHECK" | grep -q "^no_cache true" && ok "no cache_ttl_seconds on any hook" || bad "cache_ttl_seconds found (stale gate decisions!)"
@@ -67,7 +71,7 @@ printf '%s' "$CHECK" | grep -q "^skills true" && ok "skill:// resources present"
 printf '%s' "$CHECK" | grep -q "^subagents .*zensu-plm" && ok "subagent allowlist includes zensu-plm" || bad "subagent allowlist incomplete"
 printf '%s' "$CHECK" | grep -q "^subagents .*zensu-code-reviewer" && ok "subagent allowlist includes zensu-code-reviewer" || bad "allowlist lacks code-reviewer"
 printf '%s' "$CHECK" | grep -q "^subagents .*zensu-review-aspect" && ok "subagent allowlist includes zensu-review-aspect" || bad "allowlist lacks review-aspect"
-printf '%s' "$CHECK" | grep -q "^mcpjson true" && ok "includeMcpJson enabled" || bad "includeMcpJson not true"
+printf '%s' "$CHECK" | grep -q "^mcpjson true" && ok "includeMcpJson disabled (CLI mode)" || bad "includeMcpJson still true (should be false)"
 
 # every wired script exists — and speaks Kiro naming: no Claude colon-form
 # skill/agent names (zensu:foo, /zensu:foo) may reach the model from a wired
@@ -88,8 +92,8 @@ if [ -f "$P" ]; then
     console.log("plm_nogate " + !pre.includes("@zensu"));
     console.log("plm_tools " + JSON.stringify(j.tools||[]));
   ' 2>&1)"
-  printf '%s' "$PCHK" | grep -q "^plm_nogate true" && ok "zensu-plm has NO @zensu gate hook (per-agent exemption)" || bad "zensu-plm wrongly carries the MCP gate"
-  printf '%s' "$PCHK" | grep -q '@zensu' && ok "zensu-plm has @zensu tools" || bad "zensu-plm lacks @zensu tools"
+  printf '%s' "$PCHK" | grep -q "^plm_nogate true" && ok "zensu-plm has NO CLI gate hook (per-agent exemption)" || bad "zensu-plm wrongly carries the write-gate"
+  printf '%s' "$PCHK" | grep -q '"shell"' && ok "zensu-plm has shell (runs CLI writes)" || bad "zensu-plm lacks shell tool"
 else
   bad "agents/cli/zensu-plm.json missing"
 fi

@@ -2,18 +2,18 @@
 # S14/F01 — install.sh contract, exercised in a sandbox HOME (the user's real
 # ~/.kiro and ~/.zensu are never touched):
 #   fresh install   -> runtime home ~/.kiro/zensu (hooks, prompts, VERSION,
-#                      manifest.json with sha256 + absolute destinations),
-#                      skills, agents (rendered: zero __ZENSU_HOME__ leftovers),
-#                      mcp.json merge preserving pre-existing servers,
-#                      ~/.zensu/plugin-root
+#                      manifest.json {version, files} with sha256 + absolute
+#                      destinations), skills, agents (rendered: zero
+#                      __ZENSU_HOME__ leftovers), ~/.zensu/plugin-root + config
 #   idempotency     -> second run changes nothing (portable mtime via node)
 #   user edits      -> a user-modified installed file is SKIPped on EVERY
 #                      subsequent upgrade (guard must survive the manifest
 #                      rewrite), not just the first one
-#   --dry-run       -> writes nothing at all (mcp.json byte-identical, no
-#                      skills/agents/.zensu side effects)
-#   --mcp-url       -> https enforced (plain http rejected, loopback warned),
-#                      custom https URL round-trips through uninstall
+#   --dry-run       -> writes nothing at all (no skills/agents/.zensu side
+#                      effects)
+#   CLI re-home     -> no hosted MCP wiring: no ~/.kiro/settings/mcp.json write,
+#                      a fresh install never references mcp.zensu.dev, the
+#                      manifest carries no mcpFile/mcpUrl fields
 #   --scope workspace -> installs under $PWD/.kiro with its own manifest and
 #                      uninstalls exactly those files (user scope untouched)
 #   --uninstall     -> removes only manifest-listed unmodified files inside
@@ -31,11 +31,10 @@ mt() { node -e 'console.log(require("fs").statSync(process.argv[1]).mtimeMs)' "$
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 mkdir -p "$HOME/.kiro/settings"
-printf '{"mcpServers":{"other":{"url":"https://example.com/mcp"}}}\n' > "$HOME/.kiro/settings/mcp.json"
-MCP_BEFORE="$(shasum "$HOME/.kiro/settings/mcp.json" | cut -d' ' -f1)"
 
 INSTALL="$ROOT/install.sh"
 [ -f "$INSTALL" ] || { bad "install.sh missing"; printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"; exit 1; }
+bash -n "$INSTALL" && ok "install.sh parses (bash -n)" || bad "install.sh has a syntax error"
 
 # 1) --dry-run writes NOTHING
 bash "$INSTALL" --scope user --no-default --dry-run >/dev/null 2>&1
@@ -43,15 +42,8 @@ bash "$INSTALL" --scope user --no-default --dry-run >/dev/null 2>&1
 [ -d "$HOME/.kiro/skills" ] && bad "dry-run created skills" || ok "dry-run: no skills"
 [ -d "$HOME/.kiro/agents" ] && bad "dry-run created agents" || ok "dry-run: no agents"
 [ -d "$HOME/.zensu" ] && bad "dry-run created ~/.zensu" || ok "dry-run: no ~/.zensu"
-[ "$(shasum "$HOME/.kiro/settings/mcp.json" | cut -d' ' -f1)" = "$MCP_BEFORE" ] && ok "dry-run: mcp.json byte-unchanged" || bad "dry-run touched mcp.json"
 
-# 2) plain-http --mcp-url is rejected before any write
-bash "$INSTALL" --scope user --no-default --mcp-url "http://evil.example/mcp" >/dev/null 2>&1
-RC=$?
-[ "$RC" -ne 0 ] && ok "http --mcp-url rejected (rc=$RC)" || bad "http --mcp-url accepted"
-[ -d "$HOME/.kiro/zensu" ] && bad "rejected install still wrote files" || ok "rejected install wrote nothing"
-
-# 3) fresh install
+# 2) fresh install
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "install exits 0" || { bad "install rc=$RC"; printf '%s\n' "$OUT" | tail -5; }
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && ok "runtime home has kiro-shim" || bad "kiro-shim not installed"
@@ -68,24 +60,31 @@ grep -q "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" "$HOME/.kiro/agents/zensu.js
 [ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = "$HOME/.kiro/zensu" ] && ok "plugin-root written" || bad "plugin-root wrong"
 [ -f "$HOME/.zensu/config.json" ] && ok "config seeded" || bad "config not seeded"
 
-MCP_OK="$(node -e '
-  const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-  const z = j.mcpServers && j.mcpServers.zensu, o = j.mcpServers && j.mcpServers.other;
-  console.log(z && z.url === "https://mcp.zensu.dev/mcp" && o && o.url === "https://example.com/mcp" ? "yes" : "no");
-' "$HOME/.kiro/settings/mcp.json" 2>/dev/null)"
-[ "$MCP_OK" = "yes" ] && ok "mcp.json merged (zensu added, foreign kept)" || bad "mcp merge wrong"
+# 2b) CLI re-home: no hosted MCP wiring is left behind by a fresh install
+[ -f "$HOME/.kiro/settings/mcp.json" ] && bad "installer wrote ~/.kiro/settings/mcp.json (MCP wiring retired)" || ok "no ~/.kiro/settings/mcp.json written"
+grep -rq "mcp.zensu.dev" "$HOME/.kiro" 2>/dev/null && bad "fresh install references mcp.zensu.dev" || ok "fresh install never references mcp.zensu.dev"
+
+# manifest is {version, files} only — no retired mcpFile/mcpUrl fields
+MAN_SHAPE="$(node -e '
+  const m = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+  const okShape = typeof m.version === "string"
+    && m.files && typeof m.files === "object"
+    && !("mcpFile" in m) && !("mcpUrl" in m);
+  console.log(okShape ? "yes" : "no");
+' "$HOME/.kiro/zensu/manifest.json" 2>/dev/null)"
+[ "$MAN_SHAPE" = "yes" ] && ok "manifest validates as {version, files} (no mcp fields)" || bad "manifest shape wrong (expected {version, files}, no mcpFile/mcpUrl)"
 
 # manifest must record absolute destinations (scope-safe uninstall)
 grep -q "\"$HOME/.kiro/agents/zensu.json\"" "$HOME/.kiro/zensu/manifest.json" && ok "manifest records absolute destinations" || bad "manifest keys not absolute"
 
-# 4) idempotency: re-run -> nothing changes (portable mtime)
+# 3) idempotency: re-run -> nothing changes (portable mtime)
 M1="$(mt "$HOME/.kiro/agents/zensu.json")"
 sleep 1
 bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 M2="$(mt "$HOME/.kiro/agents/zensu.json")"
 [ "$M1" = "$M2" ] && ok "re-run is NOOP (mtime stable)" || bad "re-run rewrote files"
 
-# 5) user-modified file is SKIPped — and the guard SURVIVES further upgrades
+# 4) user-modified file is SKIPped — and the guard SURVIVES further upgrades
 printf '\n# user tweak\n' >> "$HOME/.kiro/skills/zensu-help/SKILL.md"
 S1="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
@@ -95,7 +94,7 @@ S3="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
 [ "$S1" = "$S3" ] && ok "user-modified file preserved across TWO upgrades" || bad "guard lost after manifest rewrite (2nd upgrade overwrote)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (2nd upgrade)" || bad "no SKIP warning (2nd upgrade)"
 
-# 6) tampered manifest entries outside the allowed roots are refused
+# 5) tampered manifest entries outside the allowed roots are refused
 SENTINEL="$HOME/precious.txt"; printf 'keep me\n' > "$SENTINEL"
 node -e '
   const fs=require("fs"); const p=process.argv[1];
@@ -104,77 +103,13 @@ node -e '
   m.files["../outside.txt"] = "0".repeat(64);
   fs.writeFileSync(p, JSON.stringify(m,null,2));
 ' "$HOME/.kiro/zensu/manifest.json" "$SENTINEL"
-UOUT="$(bash "$INSTALL" --uninstall --force 2>&1)"
+bash "$INSTALL" --uninstall --force >/dev/null 2>&1
 [ -f "$SENTINEL" ] && ok "uninstall refuses paths outside allowed roots" || bad "uninstall deleted out-of-root file"
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && bad "runtime survived uninstall" || ok "runtime removed"
 [ -f "$HOME/.kiro/agents/zensu.json" ] && bad "agent survived uninstall" || ok "agents removed"
-UNMCP="$(node -e '
-  const j = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-  console.log(!(j.mcpServers||{}).zensu && (j.mcpServers||{}).other ? "yes" : "no");
-' "$HOME/.kiro/settings/mcp.json" 2>/dev/null)"
-if [ "$UNMCP" = "yes" ]; then ok "uninstall removed zensu mcp entry, kept foreign"; else
-  bad "uninstall mcp handling wrong"
-  { printf 'DIAG installer output:\n%s\nDIAG mcp.json after uninstall:\n' "$UOUT"; cat "$HOME/.kiro/settings/mcp.json" 2>/dev/null; } >&2
-fi
 [ -f "$HOME/.zensu/config.json" ] && ok "user config untouched by uninstall" || bad "uninstall deleted user config"
 
-# 7) custom https --mcp-url round-trips through uninstall
-MOUT="$(bash "$INSTALL" --scope user --no-default --mcp-url "https://self.example/mcp" 2>&1)"
-CUR_URL="$(node -e 'console.log((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu||{}).url||"")' "$HOME/.kiro/settings/mcp.json")"
-if [ "$CUR_URL" = "https://self.example/mcp" ]; then ok "custom https url merged"; else
-  bad "custom url merge wrong: $CUR_URL"
-  printf 'DIAG merge output:\n%s\n' "$MOUT" >&2
-fi
-bash "$INSTALL" --uninstall >/dev/null 2>&1
-CUR_URL="$(node -e 'console.log(((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers||{}).zensu||{}).url||"")' "$HOME/.kiro/settings/mcp.json")"
-[ -z "$CUR_URL" ] && ok "custom url entry removed on uninstall" || bad "custom url entry left behind: $CUR_URL"
-
-# 7b) merge conflict: pre-existing zensu entry with a DIFFERENT url is left
-#     untouched (warn, rc 0) without --force; --force overwrites; sibling keys
-#     of an identical-url entry survive idempotent re-merge
-node -e '
-  const f=process.argv[1]; const j=JSON.parse(require("fs").readFileSync(f,"utf8"));
-  j.mcpServers=j.mcpServers||{}; j.mcpServers.zensu={url:"https://custom.example/mcp",disabled:false};
-  require("fs").writeFileSync(f, JSON.stringify(j,null,2)+"\n");
-' "$HOME/.kiro/settings/mcp.json"
-OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "conflicting-url install still exits 0" || bad "conflict install rc=$RC"
-printf '%s' "$OUT" | grep -qi "warn" && ok "conflicting url warned" || bad "no conflict warning"
-CUR_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.url)' "$HOME/.kiro/settings/mcp.json")"
-[ "$CUR_URL" = "https://custom.example/mcp" ] && ok "conflicting url left untouched" || bad "conflict url clobbered: $CUR_URL"
-bash "$INSTALL" --scope user --no-default --force >/dev/null 2>&1
-CUR_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.url)' "$HOME/.kiro/settings/mcp.json")"
-[ "$CUR_URL" = "https://mcp.zensu.dev/mcp" ] && ok "--force overwrites conflicting url" || bad "--force did not overwrite: $CUR_URL"
-node -e '
-  const f=process.argv[1]; const j=JSON.parse(require("fs").readFileSync(f,"utf8"));
-  j.mcpServers.zensu.disabled=false;
-  require("fs").writeFileSync(f, JSON.stringify(j,null,2)+"\n");
-' "$HOME/.kiro/settings/mcp.json"
-bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
-SIB="$(node -e 'console.log(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.disabled))' "$HOME/.kiro/settings/mcp.json")"
-[ "$SIB" = "false" ] && ok "idempotent re-merge preserves sibling keys" || bad "re-merge dropped sibling keys (disabled=$SIB)"
-
-# 7c) malformed existing mcp.json must NOT be silently replaced by {zensu-only}
-printf '{ broken json,,, \n' > "$HOME/.kiro/settings/mcp.json"
-OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
-grep -q "broken json" "$HOME/.kiro/settings/mcp.json" && ok "malformed mcp.json left untouched" || bad "malformed mcp.json was clobbered"
-printf '%s' "$OUT" | grep -qiE "warn|malformed|parse" && ok "malformed mcp.json warned" || bad "no malformed warning"
-printf '{"mcpServers":{"other":{"url":"https://example.com/mcp"}}}\n' > "$HOME/.kiro/settings/mcp.json"
-bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore healthy state
-
-# 7d) non-loopback http disguised as loopback must be FATAL
-for EVIL in "http://localhost.evil.com/mcp" "http://127.0.0.1.evil.com/mcp" "http://127.0.0.1@evil.com/mcp" "http://127.0.0.1:80@evil.com/mcp" "http://localhost:1@evil.com/mcp"; do
-  bash "$INSTALL" --scope user --no-default --mcp-url "$EVIL" >/dev/null 2>&1
-  RC=$?
-  [ "$RC" -ne 0 ] && ok "rejected pseudo-loopback $EVIL" || bad "accepted pseudo-loopback $EVIL"
-done
-ERRTXT="$(bash "$INSTALL" --scope user --no-default --mcp-url "http://127.0.0.1:8080/mcp" 2>&1 >/dev/null)"
-RC=$?
-[ "$RC" -eq 0 ] && ok "true loopback with port passes https-only validation" || bad "true loopback rejected"
-printf '%s' "$ERRTXT" | grep -q "non-TLS loopback" && ok "loopback warn announced" || bad "no loopback warning"
-bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # restore default url
-
-# 7e) first-install over a PRE-EXISTING user file must not silently overwrite
+# 6) first-install over a PRE-EXISTING user file must not silently overwrite
 PRE="$HOME/.kiro/skills/zensu-help/SKILL.md"
 bash "$INSTALL" --uninstall --force >/dev/null 2>&1
 mkdir -p "$(dirname "$PRE")"
@@ -188,11 +123,11 @@ bash "$INSTALL" --uninstall >/dev/null 2>&1
 [ -f "$PRE" ] && ok "uninstall keeps the foreign file (never recorded as ours)" || bad "uninstall deleted a file the installer never wrote"
 rm -f "$PRE"; bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
-# 7f) sha256sum fallback: with `shasum` hidden from PATH the installer must
-#     still hash correctly (idempotent NOOP re-run proves real hashes).
-#     Skipped on MSYS/Git Bash: a symlinked single-dir PATH sandbox is not
-#     reproducible there (.exe resolution + MSYS runtime deps) — the fallback
-#     shell logic is platform-independent and proven on Linux CI.
+# 7) sha256sum fallback: with `shasum` hidden from PATH the installer must
+#    still hash correctly (idempotent NOOP re-run proves real hashes).
+#    Skipped on MSYS/Git Bash: a symlinked single-dir PATH sandbox is not
+#    reproducible there (.exe resolution + MSYS runtime deps) — the fallback
+#    shell logic is platform-independent and proven on Linux CI.
 SHIMBIN="$TMP/shimbin"; mkdir -p "$SHIMBIN"
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) : ;; *)
 for t in node bash sed mv mkdir mktemp rm cat cut printf find sort dirname basename chmod cp tr grep sha256sum kiro-cli; do
@@ -225,7 +160,7 @@ bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user 
 # 8b) a crafted WORKSPACE manifest must not reach into $HOME/.kiro: plant an
 #     entry pointing at a user-scope hook with a dummy hash (--force ignores
 #     hashes, so only path confinement protects the file) and force-uninstall
-SENT2="$HOME/.kiro/zensu/hooks/pre-mcp-zensu-gate.sh"
+SENT2="$HOME/.kiro/zensu/hooks/pre-bash-zensu-gate.sh"
 node -e '
   const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   m.files[process.argv[2]] = "0".repeat(64);
@@ -233,7 +168,7 @@ node -e '
 ' "$WS/.kiro/zensu-manifest.json" "$SENT2"
 # Match the path SUFFIX, not "$SENT2" verbatim: MSYS converts argv paths for
 # native node, so on Windows the planted key is C:/... while $SENT2 is /c/...
-grep -q "hooks/pre-mcp-zensu-gate.sh" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
+grep -q "hooks/pre-bash-zensu-gate.sh" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
 ( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
 [ -f "$SENT2" ] && ok "workspace uninstall cannot delete user-scope files (scope-confined)" || bad "workspace manifest reached into \$HOME/.kiro (deleted gate hook!)"
 [ -f "$WS/.kiro/agents/zensu.json" ] && bad "workspace uninstall left workspace agents" || ok "workspace uninstall removed workspace files"

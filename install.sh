@@ -5,13 +5,16 @@
 #   ~/.kiro/zensu/            hook runtime (hooks/, prompts/, VERSION, manifest)
 #   <scope>/.kiro/skills/     11 Agent-Skills-standard skills (IDE + CLI)
 #   <scope>/.kiro/agents/     4 CLI agent JSONs (rendered) + 3 IDE agent md
-#   <scope>/.kiro/settings/mcp.json  zensu remote MCP server (merged, https-only)
 #   ~/.zensu/plugin-root      runtime-home pointer the skills depend on
 #   ~/.zensu/config.json      seeded from config.example.json if missing
 #
+# Zensu data access goes through the local `zensu` CLI (installed separately:
+# curl -fsSL https://zensu.dev/install.sh | sh, then `zensu auth login`). This
+# installer only checks for it and hints — it is not a hard dependency here.
+#
 # Usage:
 #   install.sh [--scope user|workspace] [--uninstall] [--dry-run] [--force]
-#              [--set-default|--no-default] [--mcp-url <https-url>]
+#              [--set-default|--no-default]
 #
 # Idempotent via manifests recording ABSOLUTE destinations + sha256: unmodified
 # files are overwritten on upgrade, user-modified files are SKIPped on every
@@ -20,8 +23,7 @@
 # (hook command paths are absolute) and tracked in the user manifest
 # (~/.kiro/zensu/manifest.json); workspace skills/agents are tracked in
 # <workspace>/.kiro/zensu-manifest.json. --uninstall removes only manifest
-# entries whose hash still matches, refusing any path outside the allowed
-# roots, and unmerges exactly the mcp entry it installed (URL recorded).
+# entries whose hash still matches, refusing any path outside the allowed roots.
 set -u
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
@@ -30,22 +32,18 @@ DRY=0
 FORCE=0
 UNINSTALL=0
 SET_DEFAULT="ask"
-MCP_URL=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope)
       [ $# -ge 2 ] || { echo "FATAL: --scope needs a value" >&2; exit 2; }
       SCOPE="$2"; shift 2 ;;
-    --mcp-url)
-      [ $# -ge 2 ] || { echo "FATAL: --mcp-url needs a value" >&2; exit 2; }
-      MCP_URL="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --force) FORCE=1; shift ;;
     --set-default) SET_DEFAULT="yes"; shift ;;
     --no-default) SET_DEFAULT="no"; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -62,6 +60,13 @@ else
   exit 1
 fi
 command -v kiro-cli >/dev/null 2>&1 || echo "note: kiro-cli not found on PATH — files install fine, install the CLI later" >&2
+if command -v zensu >/dev/null 2>&1; then
+  if ! zensu auth status >/dev/null 2>&1; then
+    echo "note: zensu CLI found but not authenticated — run 'zensu auth login' to enable Zensu data access" >&2
+  fi
+else
+  echo "note: zensu CLI not found on PATH — the plugin drives Zensu through it; install with 'curl -fsSL https://zensu.dev/install.sh | sh' then 'zensu auth login' (files install fine without it)" >&2
+fi
 
 ZENSU_HOME="$HOME/.kiro/zensu"
 case "$SCOPE" in
@@ -75,21 +80,6 @@ if [ "$SCOPE" = "workspace" ]; then
 else
   SCOPE_MANIFEST="$USER_MANIFEST"
 fi
-MCP_FILE="$KIRO_DIR/settings/mcp.json"
-REPO_MCP_URL="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mcpServers.zensu.url)' "$SRC/mcp.json" 2>/dev/null || echo "https://mcp.zensu.dev/mcp")"
-[ -n "$MCP_URL" ] || MCP_URL="$REPO_MCP_URL"
-
-# https-only MCP endpoint (OAuth tokens must not transit cleartext); loopback
-# http is allowed for local development with a warning.
-case "$MCP_URL" in
-  https://*) ;;
-  http://*@*)
-    # userinfo form: the REAL host follows the @ (http://127.0.0.1:x@evil.com)
-    echo "FATAL: --mcp-url must not carry userinfo (@) in a plain-http url (got: $MCP_URL)" >&2; exit 2 ;;
-  http://127.0.0.1|http://127.0.0.1:*|http://127.0.0.1/*|http://localhost|http://localhost:*|http://localhost/*)
-    echo "warn: non-TLS loopback MCP url ($MCP_URL)" >&2 ;;
-  *) echo "FATAL: --mcp-url must be https:// (got: $MCP_URL; loopback http is allowed only as http://127.0.0.1[:port]/... or http://localhost[:port]/...)" >&2; exit 2 ;;
-esac
 
 say() { printf '%s\n' "$*"; }
 
@@ -156,66 +146,6 @@ install_file() {
   fi
 }
 
-json_write_atomic() { # $1=file ; JSON on stdin
-  local tmp
-  mkdir -p "$(dirname "$1")"
-  tmp="$(mktemp "$(dirname "$1")/.zensu-mcp.XXXXXX")" || return 1
-  cat > "$tmp" && mv "$tmp" "$1"
-}
-
-merge_mcp() {
-  say "MERGE   $MCP_FILE (mcpServers.zensu -> $MCP_URL)"
-  [ "$DRY" -eq 1 ] && return 0
-  MCP_FILE_ENV="$MCP_FILE" MCP_URL_ENV="$MCP_URL" FORCE_ENV="$FORCE" node -e '
-    const fs = require("fs");
-    // Git Bash / MSYS env conversion is heuristic: path-like env values may
-    // reach native node in EITHER form (/c/... untouched, or converted to
-    // C:/...). Normalize for fs ops only; emitted strings stay POSIX.
-    const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
-    const file = norm(process.env.MCP_FILE_ENV), url = process.env.MCP_URL_ENV;
-    let j = {};
-    if (fs.existsSync(file)) {
-      // An existing-but-malformed settings file must never be replaced by a
-      // zensu-only document — that would silently drop every other server.
-      try { j = JSON.parse(fs.readFileSync(file, "utf8")); }
-      catch (e) {
-        console.error("warn: " + file + " exists but is not valid JSON (" + e.message + ") — mcp merge skipped; fix the file and re-run");
-        process.exit(3);
-      }
-    }
-    if (typeof j !== "object" || j === null || Array.isArray(j)) {
-      console.error("warn: " + file + " has a non-object JSON root — mcp merge skipped; fix the file and re-run");
-      process.exit(3);
-    }
-    j.mcpServers = j.mcpServers || {};
-    const existing = j.mcpServers.zensu;
-    if (existing && existing.url !== url && process.env.FORCE_ENV !== "1") {
-      console.error("warn: mcpServers.zensu already exists with a different url (" + existing.url + ") — left untouched (--force to overwrite)");
-      process.exit(3);
-    }
-    // Preserve user-added sibling keys (disabled, headers, ...) on re-merge.
-    j.mcpServers.zensu = Object.assign({}, existing || {}, { url });
-    process.stdout.write(JSON.stringify(j, null, 2) + "\n");
-  ' | { read -r first || exit 0; { printf '%s\n' "$first"; cat; } | json_write_atomic "$MCP_FILE"; }
-}
-
-unmerge_mcp() { # $1=mcp file $2=recorded url
-  [ -f "$1" ] || return 0
-  say "UNMERGE $1 (remove mcpServers.zensu if url == $2)"
-  [ "$DRY" -eq 1 ] && return 0
-  MCP_FILE_ENV="$1" MCP_URL_ENV="$2" node -e '
-    const fs = require("fs");
-    const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
-    const file = norm(process.env.MCP_FILE_ENV), url = process.env.MCP_URL_ENV;
-    let j;
-    try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { process.exit(3); }
-    if (j && j.mcpServers && j.mcpServers.zensu && j.mcpServers.zensu.url === url) {
-      delete j.mcpServers.zensu;
-      process.stdout.write(JSON.stringify(j, null, 2) + "\n");
-    } else { process.exit(3); }
-  ' | { read -r first || exit 0; { printf '%s\n' "$first"; cat; } | json_write_atomic "$1"; }
-}
-
 # Allowed deletion root: a manifest entry may only be removed when it is an
 # absolute path under the ACTIVE scope's .kiro dir (user scope: $HOME/.kiro;
 # workspace scope: $PWD/.kiro) and contains no parent traversal. Deliberately
@@ -230,21 +160,17 @@ path_allowed() { # $1=abs path
   return 1
 }
 
-write_manifest() { # $1=manifest file $2=list file $3=mcp file $4=mcp url
-  MF="$1" LIST="$2" MCPF="$3" MCPU="$4" VERSION_VAL="$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" node -e '
+write_manifest() { # $1=manifest file $2=list file
+  MF="$1" LIST="$2" VERSION_VAL="$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" node -e '
     const fs = require("fs");
     // fs targets normalized for Windows-native node. The recorded file paths
-    // come from the LIST file CONTENT (never env-converted, stays POSIX); the
-    // recorded mcpFile may arrive MSYS-converted — uninstall treats it as a
-    // merged-or-not flag only and never compares or dereferences it as a path.
+    // come from the LIST file CONTENT (never env-converted, stays POSIX).
     const norm = p => process.platform === "win32" ? p.replace(/^\/([A-Za-z])(\/|$)/, (m,d,s) => d.toUpperCase() + ":" + (s || "")) : p;
     const lines = fs.readFileSync(norm(process.env.LIST), "utf8").trim().split("\n").filter(Boolean);
     const files = {};
     for (const l of lines) { const i = l.indexOf("\t"); files[l.slice(0, i)] = l.slice(i + 1); }
     fs.writeFileSync(norm(process.env.MF), JSON.stringify({
       version: process.env.VERSION_VAL,
-      mcpFile: process.env.MCPF,
-      mcpUrl: process.env.MCPU,
       files
     }, null, 2) + "\n");
   '
@@ -255,8 +181,6 @@ if [ "$UNINSTALL" -eq 1 ]; then
     echo "nothing to uninstall (no manifest at $SCOPE_MANIFEST)" >&2
     exit 0
   fi
-  REC_MCP_FILE="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpFile||"")}catch(_){}' "$SCOPE_MANIFEST")"
-  REC_MCP_URL="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpUrl||"")}catch(_){}' "$SCOPE_MANIFEST")"
   node -e '
     const m = JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
     for (const [p, hash] of Object.entries(m.files || {})) console.log(p + "\t" + hash);
@@ -274,14 +198,6 @@ if [ "$UNINSTALL" -eq 1 ]; then
       say "KEEP    $p (user-modified)"
     fi
   done
-  if [ -n "$REC_MCP_FILE" ]; then
-    # The recorded mcpFile is a merged-or-not FLAG only. The unmerge target is
-    # ALWAYS the active scope's canonical settings file: a crafted manifest can
-    # never point the unmerge elsewhere, and Windows path-form drift (MSYS env
-    # conversion records C:/...8.3 forms while bash compares /tmp/... mounts)
-    # cannot break the match. The recorded URL still guards foreign entries.
-    unmerge_mcp "$MCP_FILE" "${REC_MCP_URL:-$REPO_MCP_URL}"
-  fi
   if [ "$DRY" -ne 1 ]; then
     rm -f "$SCOPE_MANIFEST"
     find "$ZENSU_HOME" -type d -empty -delete 2>/dev/null || true
@@ -319,10 +235,7 @@ while IFS= read -r f; do
   install_file "$f" "$KIRO_DIR/agents/$(basename "$f")" "$SCOPE_LIST"
 done < <(find "$SRC/agents/ide" -type f -name '*.md' | sort)
 
-# 3) mcp merge (into the scope's settings file)
-merge_mcp
-
-# 4) ~/.zensu pointers (skills resolve the runtime through plugin-root)
+# 3) ~/.zensu pointers (skills resolve the runtime through plugin-root)
 if [ "$DRY" -ne 1 ]; then
   mkdir -p "$HOME/.zensu"
   printf '%s\n' "$ZENSU_HOME" > "$HOME/.zensu/plugin-root"
@@ -333,22 +246,16 @@ if [ "$DRY" -ne 1 ]; then
   fi
 fi
 
-# 5) manifests
+# 4) manifests
 if [ "$DRY" -ne 1 ]; then
   mkdir -p "$ZENSU_HOME"
   if [ "$SCOPE" = "workspace" ]; then
     # user manifest keeps runtime entries; preserve its previous skills/agents
     # records by merging: runtime list + existing user-scope entries that still
     # exist on disk and are not runtime files re-recorded above.
-    USER_MCP_FILE=""; USER_MCP_URL=""   # only what a USER-scope run actually recorded
     if [ -f "$USER_MANIFEST" ]; then
       # Preserve the user manifest's previous skills/agents records (only for
-      # files that still exist) AND its recorded mcp target — a workspace run
-      # must not clobber a custom user-scope --mcp-url record.
-      PREV_MCP_FILE="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpFile||"")}catch(_){}' "$USER_MANIFEST")"
-      PREV_MCP_URL="$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.mcpUrl||"")}catch(_){}' "$USER_MANIFEST")"
-      [ -n "$PREV_MCP_FILE" ] && USER_MCP_FILE="$PREV_MCP_FILE"
-      [ -n "$PREV_MCP_URL" ] && USER_MCP_URL="$PREV_MCP_URL"
+      # files that still exist).
       node -e '
         const fs = require("fs");
         const m = JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
@@ -358,16 +265,16 @@ if [ "$DRY" -ne 1 ]; then
         case "$p" in "$ZENSU_HOME"/*) ;; *) printf '%s\t%s\n' "$p" "$h" >> "$USER_LIST" ;; esac
       done
     fi
-    write_manifest "$USER_MANIFEST" "$USER_LIST" "$USER_MCP_FILE" "$USER_MCP_URL"
-    write_manifest "$SCOPE_MANIFEST" "$SCOPE_LIST" "$MCP_FILE" "$MCP_URL"
+    write_manifest "$USER_MANIFEST" "$USER_LIST"
+    write_manifest "$SCOPE_MANIFEST" "$SCOPE_LIST"
   else
     cat "$SCOPE_LIST" >> "$USER_LIST"
-    write_manifest "$USER_MANIFEST" "$USER_LIST" "$MCP_FILE" "$MCP_URL"
+    write_manifest "$USER_MANIFEST" "$USER_LIST"
   fi
   say "WRITE   $SCOPE_MANIFEST"
 fi
 
-# 6) default agent (opt-in)
+# 5) default agent (opt-in)
 if [ "$DRY" -ne 1 ] && command -v kiro-cli >/dev/null 2>&1; then
   case "$SET_DEFAULT" in
     yes) kiro-cli agent set-default zensu && say "DEFAULT kiro-cli agent set-default zensu" ;;
@@ -386,7 +293,9 @@ fi
 
 say ""
 say "done. Next steps:"
-say "  kiro-cli chat --agent zensu          # OAuth to the zensu MCP runs on first @zensu call"
+say "  zensu auth login                     # the plugin drives Zensu through the local zensu CLI"
+say "                                       # install it first if missing: curl -fsSL https://zensu.dev/install.sh | sh"
+say "  kiro-cli chat --agent zensu          # start a session"
 say "  /zensu-help                          # orientation; /zensu-tdd for gate-enforced TDD"
 say "  headless: KIRO_API_KEY=... kiro-cli chat --no-interactive --agent zensu --trust-all-tools '<prompt>'"
 if [ "$INSTALL_FAILED" -ne 0 ]; then
