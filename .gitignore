@@ -16,5 +16,8 @@ node_modules/
 *.key
 *.pem
 
+# local git worktrees
+.claude/worktrees/
+
 # OS noise
 .DS_Store
