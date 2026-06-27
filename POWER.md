@@ -4,7 +4,7 @@ displayName: Zensu PLM
 description: Product Lifecycle Manager — features as first-class citizens. Feature tracking with KEY-N feature ids, strict RED→GREEN TDD with a phase-gated edit guard, five-perspective review chain, security reviews and STRIDE threat models, greenfield bootstrap and brownfield ghost-scan, user journeys, tiers, and release readiness.
 keywords: [zensu, plm, feature, roadmap, tdd, security-review, ghost-scan, bootstrap, journey, tier, release]
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Zensu PLM Power
