@@ -6,6 +6,31 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-27
+
+### Added
+
+- **cli**: Re-home plugin from MCP tools to the typed zensu CLI
+- **skills**: Add zensu-pr-fix-findings skill (#5)
+- **hooks**: Vanilla implementation mode (hooks.tddImplementation)
+
+### Changed
+
+- **plans**: MCP-to-CLI re-home plan for kiro (parity with claude-code #117/#128) (#6)
+- Show vanilla mode in the workflow diagram (#4)
+- **readme**: Add three-layer workflow mermaid diagram
+- **ids**: Migrate ZEN-XXX wording to per-product KEY-N feature ids
+
+### Fixed
+
+- **tdd**: Drop unflippable plan checkboxes; Status column is sole completion tracker (#9)
+- **ghost-scan**: Mint v1 baseline server-side, drop client-side Phase 5b
+- **windows**: Cygpath-normalize gate classifier inputs for native node
+
+merge
+
+- Main (KEY-N feature-id wording) into vanilla-mode branch
+
 ### Changed
 
 - **Re-homed from the hosted MCP server to the typed `zensu` CLI** (ports
