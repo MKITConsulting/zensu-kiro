@@ -448,6 +448,10 @@ grep -qF "## Vanilla implementation mode" "$PLUGIN_DIR/steering/zensu-tdd-protoc
   && grep -qF "tddImplementation" "$PLUGIN_DIR/agents/prompts/zensu-orchestrator.md" \
   && grep -qF "tddImplementation" "$PLUGIN_DIR/POWER.md"; } \
   && check "H7 conventions mirrors carry the vanilla sentence on all three surfaces" PASS || check "H7 conventions-mirror pins" FAIL
+GFM_COUNT="$(grep -cE '^- \[[ xX]\]' "$SKILL_TDD" 2>/dev/null; true)"
+[ "$GFM_COUNT" -eq 0 ] \
+  && check "H8 SKILL.md plan template carries zero GFM checkboxes (Status column is sole completion tracker)" PASS \
+  || check "H8 SKILL.md plan template carries zero GFM checkboxes (found $GFM_COUNT)" FAIL
 
 echo "----"
 echo "test-tdd-vanilla-mode: $PASS PASS / $FAIL FAIL"
