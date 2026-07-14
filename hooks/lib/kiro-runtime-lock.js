@@ -14,27 +14,133 @@ class RuntimeLockError extends Error {
   constructor(message, exitCode = 3) { super(message); this.exitCode = exitCode; }
 }
 const fail = (message, exitCode = 3) => { throw new RuntimeLockError(message, exitCode); };
-const norm = value => process.platform === "win32"
-  ? value.replace(/^\/([A-Za-z])(\/|$)/, (_m, drive, slash) => `${drive.toUpperCase()}:${slash || ""}`)
-  : value;
 const exists = target => {
   try { fs.lstatSync(target); return true; }
   catch (error) { if (error && error.code === "ENOENT") return false; throw error; }
 };
-const absolute = (value, label) => {
+const analyzePath = (value, label) => {
   if (typeof value !== "string" || !value || /[\0\r\n\t]/.test(value)) fail(`${label} is empty or unsafe`);
-  const converted = norm(value);
-  if (!path.isAbsolute(converted)) fail(`${label} is not absolute`);
-  return path.resolve(converted);
+  if (process.platform === "win32" && value.startsWith("/") && !value.startsWith("//")) {
+    if (!path.posix.isAbsolute(value)) fail(`${label} is not absolute`);
+    if (value.includes("\\")) fail(`${label} contains a Windows separator in MSYS syntax`);
+    const components = value === "/" ? [] : value.split("/").slice(1);
+    if (components.some(component => !component || component === "." || component === ".." ||
+        component.includes(":") || /[. ]$/.test(component))) {
+      fail(`${label} contains a non-canonical or Windows-aliased component`);
+    }
+    return { api: path.posix, kind: "msys", value: path.posix.resolve(value) };
+  }
+  const api = process.platform === "win32" ? path.win32 : path;
+  if (!api.isAbsolute(value)) fail(`${label} is not absolute`);
+  if (process.platform === "win32") {
+    const root = path.win32.parse(value).root;
+    const remainder = value.slice(root.length);
+    const components = remainder ? remainder.split(/[\\/]/) : [];
+    if (components.some(component => !component || component === "." || component === ".." ||
+        component.includes(":") || /[. ]$/.test(component))) {
+      fail(`${label} contains a non-canonical or Windows-aliased component`);
+    }
+  }
+  return { api, kind: "native", value: api.resolve(value) };
 };
+const relativeWithin = (parent, child) => {
+  if (parent.kind !== child.kind) return null;
+  const relative = parent.api.relative(parent.value, child.value);
+  if (relative === "") return "";
+  if (relative === ".." || relative.startsWith(`..${parent.api.sep}`) || parent.api.isAbsolute(relative)) return null;
+  return relative;
+};
+const mappingSpecs = [
+  ["ZENSU_KIRO_HOME_ANCHOR_RAW", "ZENSU_KIRO_HOME_ANCHOR_NATIVE"],
+  ...(process.env.NODE_ENV === "test" ? [["ZENSU_KIRO_TEST_ANCHOR_RAW", "ZENSU_KIRO_TEST_ANCHOR_NATIVE"]] : [])
+];
+const mappings = mappingSpecs.flatMap(([rawName, nativeName]) => {
+  const raw = process.env[rawName] || "";
+  const native = process.env[nativeName] || "";
+  if (!raw && !native) return [];
+  if (!raw || !native) fail("trusted anchor mapping is incomplete");
+  const rawPath = analyzePath(raw, "raw trusted anchor");
+  const nativePath = analyzePath(native, "native trusted anchor");
+  if (process.platform === "win32" && nativePath.kind !== "native") fail("native trusted anchor is not native Windows syntax");
+  let stat;
+  try { stat = fs.statSync(nativePath.value); } catch (_) { fail("native trusted anchor is missing"); }
+  if (!stat.isDirectory()) fail("native trusted anchor is not a directory");
+  return [{ raw: rawPath, native: nativePath, realNative: fs.realpathSync(nativePath.value) }];
+});
+const safeDirectChild = (relative, source, label) => {
+  if (!relative || relative.includes(source.api.sep)) fail(`${label} must be a direct child of its anchor`);
+  if (relative === "." || relative === ".." ||
+      (process.platform === "win32" && (relative.includes("\\") || relative.includes(":") || /[. ]$/.test(relative)))) {
+    fail(`${label} contains an unsafe component`);
+  }
+  return relative;
+};
+const anchorCache = new Map();
+function anchorContext(anchorValue) {
+  const anchor = analyzePath(anchorValue, "lock anchor");
+  const cacheKey = `${anchor.kind}:${anchor.value}`;
+  if (anchorCache.has(cacheKey)) return anchorCache.get(cacheKey);
+  const candidates = [];
+  for (const mapping of mappings) {
+    const rawRelative = relativeWithin(mapping.raw, anchor);
+    if (rawRelative !== null) candidates.push({ mapping, relative: rawRelative, source: mapping.raw });
+    const nativeRelative = relativeWithin(mapping.native, anchor);
+    if (nativeRelative !== null) candidates.push({ mapping, relative: nativeRelative, source: mapping.native });
+  }
+  candidates.sort((left, right) => right.source.value.length - left.source.value.length);
+  let context;
+  if (candidates.length) {
+    const { mapping, relative, source } = candidates[0];
+    const parts = relative ? relative.split(source.api.sep) : [];
+    if (parts.some(part => !part || part === "." || part === ".." ||
+        (process.platform === "win32" && (part.includes("\\") || part.includes(":") || /[. ]$/.test(part))))) {
+      fail("lock anchor contains an unsafe component");
+    }
+    const logicalNative = path.resolve(mapping.native.value, ...parts);
+    const logicalRelative = path.relative(mapping.native.value, logicalNative);
+    if (logicalRelative === ".." || logicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(logicalRelative)) {
+      fail("lock anchor escapes its logical native mapping");
+    }
+    const native = path.resolve(mapping.realNative, ...parts);
+    const nativeRelative = path.relative(mapping.realNative, native);
+    if (nativeRelative === ".." || nativeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(nativeRelative)) {
+      fail("lock anchor escapes its native mapping");
+    }
+    let stat;
+    try { stat = fs.statSync(native); } catch (_) { fail("lock anchor is missing"); }
+    if (!stat.isDirectory()) fail("lock anchor is unsafe");
+    context = {
+      raw: analyzePath(mapping.raw.api.resolve(mapping.raw.value, ...parts), "raw lock anchor"),
+      nativeLogical: analyzePath(logicalNative, "native lock anchor"),
+      native: fs.realpathSync(native)
+    };
+  } else if (process.platform !== "win32") {
+    let stat;
+    try { stat = fs.statSync(anchor.value); } catch (_) { fail("lock anchor is missing"); }
+    if (!stat.isDirectory()) fail("lock anchor is unsafe");
+    const native = fs.realpathSync(anchor.value);
+    context = { raw: anchor, nativeLogical: analyzePath(native, "native lock anchor"), native };
+  } else {
+    fail("lock anchor is not covered by a trusted raw/native mapping");
+  }
+  anchorCache.set(cacheKey, context);
+  return context;
+}
 
 function actualLockPath(anchorValue, lockValue) {
-  const anchor = absolute(anchorValue, "lock anchor");
-  const lock = absolute(lockValue, "lock path");
-  if (path.dirname(lock) !== anchor) fail("lock must be a direct child of HOME");
-  const anchorStat = fs.lstatSync(anchor);
-  if (anchorStat.isSymbolicLink() || !anchorStat.isDirectory()) fail("lock anchor is unsafe");
-  return path.join(fs.realpathSync(anchor), path.basename(lock));
+  const context = anchorContext(anchorValue);
+  const lock = analyzePath(lockValue, "lock path");
+  let relative = relativeWithin(context.raw, lock);
+  let source = context.raw;
+  if (relative === null) {
+    relative = relativeWithin(context.nativeLogical, lock);
+    source = context.nativeLogical;
+  }
+  if (relative === null) fail("lock path escapes its anchor");
+  const component = safeDirectChild(relative, source, "lock path");
+  const actual = path.resolve(context.native, component);
+  if (path.dirname(actual) !== context.native) fail("lock path escapes its native anchor");
+  return actual;
 }
 
 function parseLockBytes(bytes) {
@@ -143,7 +249,7 @@ function removeStaleLock(actualLock, snapshot) {
 
 function testBarrier(name) {
   if (process.env.NODE_ENV !== "test" || !process.env.ZENSU_INSTALL_TEST_BARRIER_DIR) return;
-  const directory = absolute(process.env.ZENSU_INSTALL_TEST_BARRIER_DIR, "test barrier directory");
+  const directory = anchorContext(process.env.ZENSU_INSTALL_TEST_BARRIER_DIR).native;
   const stat = fs.lstatSync(directory);
   if (stat.isSymbolicLink() || !stat.isDirectory()) fail("test barrier directory is unsafe");
   const reached = path.join(directory, `${name}.reached`);

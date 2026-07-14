@@ -5,6 +5,26 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INSTALL="$ROOT/install.sh"
 RESOLVER_SRC="$ROOT/hooks/lib/resolve-plugin-root.sh"
 INVENTORY="$ROOT/runtime-files.txt"
+ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+CYGPATH_POSIX=""
+case "${OSTYPE:-}" in
+  msys*|cygwin*)
+    if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        case ";${MSYS2_ENV_CONV_EXCL:-};" in
+          *";$RAW_ENV_NAME;"*) ;;
+          *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
+        esac
+      done
+    fi
+    export MSYS2_ENV_CONV_EXCL
+    CYGPATH_POSIX="${BASH%/*}/cygpath.exe"
+    BASH_POSIX="$BASH"; case "$BASH_POSIX" in *.exe) ;; *) [ -x "${BASH_POSIX}.exe" ] && BASH_POSIX="${BASH_POSIX}.exe" ;; esac
+    ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE="$("$CYGPATH_POSIX" -m "$CYGPATH_POSIX")"
+    ZENSU_KIRO_TRUSTED_BASH_NATIVE="$("$CYGPATH_POSIX" -m "$BASH_POSIX")"
+    export ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE ZENSU_KIRO_TRUSTED_BASH_NATIVE
+    ;;
+esac
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
@@ -37,6 +57,13 @@ fi
 
 TMP="$(mktemp -d -t zensu-kiro-root-XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
+ZENSU_KIRO_TEST_ANCHOR_RAW="$TMP"
+ZENSU_KIRO_TEST_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER")" || {
+  echo "could not resolve test anchor" >&2; exit 1;
+}
+export ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE
+node -p 'process.ppid' > "$TMP/native-shell.pid"
+LIVE_PID="$(cat "$TMP/native-shell.pid")"
 export HOME="$TMP/home with space"
 mkdir -p "$HOME/.zensu" "$TMP/workspace with space"
 printf '%s\n' '/tmp/legacy-pointer-must-survive' > "$HOME/.zensu/plugin-root"
@@ -48,11 +75,44 @@ RUNTIME="$HOME/.kiro/zensu"
 RESOLVER="$RUNTIME/hooks/lib/resolve-plugin-root.sh"
 GOT="$(env HOME="$HOME" bash "$RESOLVER" 1 2>/dev/null)"
 if [ "$GOT" = "$RUNTIME" ]; then ok "K3 resolver returns the fixed user runtime"; else bad "K3 resolver got '$GOT'"; fi
+
+if [ -n "$CYGPATH_POSIX" ]; then
+  cp "$RUNTIME/manifest.json" "$TMP/manifest-before-case-alias.json"
+  MANIFEST="$RUNTIME/manifest.json" node - <<'NODE'
+const fs = require("fs");
+const file = process.env.MANIFEST;
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+const key = Object.keys(manifest.files).find(value => /[\\/]hooks[\\/]lib[\\/]zensu-log\.sh$/.test(value));
+if (!key) process.exit(1);
+const alias = key.replace(/([\\/])hooks([\\/])/, "$1HOOKS$2");
+manifest.files[alias] = manifest.files[key];
+delete manifest.files[key];
+fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+NODE
+  if env HOME="$HOME" bash "$RESOLVER" 1 >/dev/null 2>&1; then
+    bad "K3c resolver accepted a case-aliased manifest path"
+  else
+    ok "K3c resolver rejects manifest paths that differ from filesystem spelling"
+  fi
+  cp "$TMP/manifest-before-case-alias.json" "$RUNTIME/manifest.json"
+else
+  ok "K3c skipped case-alias check (requires native Windows Node under Git Bash)"
+fi
 if env HOME="$HOME" bash "$RESOLVER" >/dev/null 2>&1; then
   bad "K3b resolver accepted a caller without a scope protocol binding"
 else
   ok "K3b resolver requires an explicit compatible scope protocol"
 fi
+
+OPTIONAL_SKILL="$HOME/.kiro/skills/zensu-help/SKILL.md"
+rm -f "$OPTIONAL_SKILL"
+GOT="$(env HOME="$HOME" bash "$RESOLVER" 1 2>/dev/null)"
+if [ "$GOT" = "$RUNTIME" ]; then
+  ok "K3d resolver tolerates a missing optional non-runtime manifest target"
+else
+  bad "K3d missing optional skill incorrectly invalidated the runtime"
+fi
+bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
 
 if [ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = '/tmp/legacy-pointer-must-survive' ]; then
   ok "K4 installer ignores and preserves the legacy pointer"
@@ -107,7 +167,7 @@ fi
 RESOLVER_CLAIM_TOKEN="$(printf 'a%.0s' {1..64})"
 RESOLVER_CLAIM="$HOME/.zensu-kiro-install.lock.recovery.reclaim.$RESOLVER_CLAIM_TOKEN"
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z","targetFingerprint":"resolver-fixture"}\n' \
-  "$$" "$RESOLVER_CLAIM_TOKEN" > "$RESOLVER_CLAIM"
+  "$LIVE_PID" "$RESOLVER_CLAIM_TOKEN" > "$RESOLVER_CLAIM"
 if env HOME="$HOME" bash "$RESOLVER" 1 >/dev/null 2>&1; then
   bad "K5c resolver ignored an active recovery election claim"
 else
@@ -150,7 +210,7 @@ env HOME="$HOME" NODE_ENV=test ZENSU_KIRO_TEST_BARRIER_DIR="$VALIDATION_BARRIER"
 i=0; while [ ! -e "$VALIDATION_BARRIER/runtime-validation.reached" ] && [ "$i" -lt 500 ]; do sleep 0.02; i=$((i+1)); done
 if [ -e "$VALIDATION_BARRIER/runtime-validation.reached" ]; then
   printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
-    "$$" "$(printf 'b%.0s' {1..64})" > "$HOME/.zensu-kiro-install.lock"
+    "$LIVE_PID" "$(printf 'b%.0s' {1..64})" > "$HOME/.zensu-kiro-install.lock"
   : > "$VALIDATION_BARRIER/runtime-validation.release"
   wait "$VALIDATION_PID"; VALIDATION_RC=$?
   rm -f "$HOME/.zensu-kiro-install.lock"

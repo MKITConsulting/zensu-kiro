@@ -21,6 +21,25 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CYGPATH_POSIX=""
+case "${OSTYPE:-}" in
+  msys*|cygwin*)
+    if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        case ";${MSYS2_ENV_CONV_EXCL:-};" in
+          *";$RAW_ENV_NAME;"*) ;;
+          *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
+        esac
+      done
+    fi
+    export MSYS2_ENV_CONV_EXCL
+    CYGPATH_POSIX="${BASH%/*}/cygpath.exe"
+    BASH_POSIX="$BASH"; case "$BASH_POSIX" in *.exe) ;; *) [ -x "${BASH_POSIX}.exe" ] && BASH_POSIX="${BASH_POSIX}.exe" ;; esac
+    ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE="$("$CYGPATH_POSIX" -m "$CYGPATH_POSIX")"
+    ZENSU_KIRO_TRUSTED_BASH_NATIVE="$("$CYGPATH_POSIX" -m "$BASH_POSIX")"
+    export ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE ZENSU_KIRO_TRUSTED_BASH_NATIVE
+    ;;
+esac
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -32,10 +51,108 @@ hash_file() { node -e 'const fs=require("fs"),c=require("crypto");process.stdout
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 mkdir -p "$HOME/.kiro/settings"
+node -p 'process.ppid' > "$TMP/native-shell.pid"
+LIVE_PID="$(cat "$TMP/native-shell.pid")"
 
 INSTALL="$ROOT/install.sh"
+HELPER="$ROOT/scripts/install-support.js"
+ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+INSTALL_WINDOWS_CONFIG="$(sed -n '/^configure_windows_native_tools() {$/,/^}$/p' "$INSTALL")"
+SHIM_WINDOWS_CONFIG="$(sed -n '/^configure_windows_native_tools() {$/,/^}$/p' "$ROOT/hooks/kiro/kiro-shim.sh")"
+RESOLVER_WINDOWS_CONFIG="$(sed -n '/^configure_windows_native_tools() {$/,/^}$/p' "$ROOT/hooks/lib/resolve-plugin-root.sh")"
+if [ -n "$INSTALL_WINDOWS_CONFIG" ] && [ "$INSTALL_WINDOWS_CONFIG" = "$SHIM_WINDOWS_CONFIG" ] && \
+   [ "$INSTALL_WINDOWS_CONFIG" = "$RESOLVER_WINDOWS_CONFIG" ]; then
+  ok "Windows raw-anchor environment policy is identical in all entrypoints"
+else
+  bad "Windows raw-anchor environment policy drifted between entrypoints"
+fi
+
+# Exercise the real production merger even on POSIX (where the later trusted
+# cygpath lookup intentionally fails). `*` is a special all-excluded mode and
+# must remain byte-identical; ordinary prefix lists are preserved and extended
+# exactly once.
+eval "$INSTALL_WINDOWS_CONFIG"
+SAVED_OSTYPE="$OSTYPE"
+SAVED_EXCL_SET="${MSYS2_ENV_CONV_EXCL+x}"
+SAVED_EXCL="${MSYS2_ENV_CONV_EXCL:-}"
+OSTYPE=msys-zensu-policy-test
+MSYS2_ENV_CONV_EXCL='*'; configure_windows_native_tools >/dev/null 2>&1 || true
+STAR_EXCL="$MSYS2_ENV_CONV_EXCL"
+MSYS2_ENV_CONV_EXCL='keep-one;keep-two'; configure_windows_native_tools >/dev/null 2>&1 || true
+configure_windows_native_tools >/dev/null 2>&1 || true
+LIST_EXCL="$MSYS2_ENV_CONV_EXCL"
+EXPECTED_EXCL='keep-one;keep-two;ZENSU_KIRO_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_RAW;ZENSU_KIRO_WORKSPACE_ANCHOR_RAW;ZENSU_KIRO_TEST_ANCHOR_RAW;ZENSU_KIRO_ROOT'
+OSTYPE="$SAVED_OSTYPE"
+if [ -n "$SAVED_EXCL_SET" ]; then MSYS2_ENV_CONV_EXCL="$SAVED_EXCL"; export MSYS2_ENV_CONV_EXCL; else unset MSYS2_ENV_CONV_EXCL; fi
+if [ "$STAR_EXCL" = '*' ] && [ "$LIST_EXCL" = "$EXPECTED_EXCL" ]; then
+  ok "MSYS exclusion merger preserves '*' and extends prefix lists idempotently"
+else
+  bad "MSYS exclusion merger corrupted '*' or an existing prefix list"
+fi
+
+ZENSU_KIRO_HOME_ANCHOR_RAW="$TMP"
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER")" || {
+  echo "could not resolve test anchor" >&2; exit 1;
+}
+export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
 [ -f "$INSTALL" ] || { bad "install.sh missing"; printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"; exit 1; }
 bash -n "$INSTALL" && ok "install.sh parses (bash -n)" || bad "install.sh has a syntax error"
+
+# Anchor canonicality is a pre-mutation invariant. In particular, a HOME that
+# reaches the same directory through `..` must not publish files and then fail
+# only when the manifest rejects its raw spelling.
+NONCANON_BASE="$TMP/noncanonical-home"; mkdir -p "$NONCANON_BASE/x" "$NONCANON_BASE/home"
+NONCANON_HOME="$NONCANON_BASE/x/../home"
+HOME="$NONCANON_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1; RC=$?
+if [ "$RC" -ne 0 ] && [ ! -e "$NONCANON_BASE/home/.kiro" ] && [ ! -e "$NONCANON_BASE/home/.zensu" ]; then
+  ok "non-canonical HOME fails before any installer publication"
+else
+  bad "non-canonical HOME left a partial installation"
+fi
+
+if [ "$(node -p 'process.platform')" != "win32" ]; then
+  BACKSLASH_HOME="$TMP/home\\with-backslash"; mkdir -p "$BACKSLASH_HOME"
+  HOME="$BACKSLASH_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1; RC=$?
+  BACKSLASH_LEAF="$BACKSLASH_HOME/.kiro/skills/optional-leaf\\"
+  printf 'optional backslash leaf\n' > "$BACKSLASH_LEAF"
+  MANIFEST="$BACKSLASH_HOME/.kiro/zensu/manifest.json" FILE="$BACKSLASH_LEAF" node - <<'NODE'
+const crypto = require("crypto");
+const fs = require("fs");
+const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+manifest.files[process.env.FILE] = crypto.createHash("sha256").update(fs.readFileSync(process.env.FILE)).digest("hex");
+fs.writeFileSync(process.env.MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
+NODE
+  BACKSLASH_ROOT="$(HOME="$BACKSLASH_HOME" bash "$BACKSLASH_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 2>/dev/null)"
+  if [ "$RC" -eq 0 ] && [ "$BACKSLASH_ROOT" = "$BACKSLASH_HOME/.kiro/zensu" ]; then
+    ok "POSIX backslash components and terminal-backslash manifest leaves remain valid"
+  else
+    bad "POSIX backslash path component was treated as a Windows escape"
+  fi
+else
+  ok "skipped POSIX backslash-anchor case on Windows"
+fi
+
+if [ -n "$CYGPATH_POSIX" ]; then
+  JUNCTION_TARGET="$TMP/junction-target"; JUNCTION_HOME="$TMP/junction-home"
+  mkdir -p "$JUNCTION_TARGET"
+  JUNCTION_TARGET_NATIVE="$("$CYGPATH_POSIX" -am "$JUNCTION_TARGET")"
+  JUNCTION_HOME_NATIVE="$("$CYGPATH_POSIX" -am "$JUNCTION_HOME")"
+  if node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' \
+      "$JUNCTION_TARGET_NATIVE" "$JUNCTION_HOME_NATIVE" >/dev/null 2>&1; then
+    HOME="$JUNCTION_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1; RC=$?
+    JUNCTION_ROOT="$(HOME="$JUNCTION_HOME" bash "$JUNCTION_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 2>/dev/null)"
+    if [ "$RC" -eq 0 ] && [ "$JUNCTION_ROOT" = "$JUNCTION_HOME/.kiro/zensu" ] && \
+       [ -f "$JUNCTION_TARGET/.kiro/zensu/VERSION" ]; then
+      ok "Windows junction HOME preserves logical identity and writes through the physical anchor"
+    else
+      bad "Windows junction HOME lost its logical/native anchor identity"
+    fi
+  else
+    ok "skipped Windows junction-anchor case (junction creation unavailable)"
+  fi
+else
+  ok "skipped Windows junction-anchor case on POSIX"
+fi
 
 # 1) --dry-run writes NOTHING
 bash "$INSTALL" --scope user --no-default --dry-run >/dev/null 2>&1
@@ -84,6 +201,35 @@ MAN_SHAPE="$(node -e '
 # manifest must record absolute destinations (scope-safe uninstall)
 grep -q "\"$HOME/.kiro/agents/zensu.json\"" "$HOME/.kiro/zensu/manifest.json" && ok "manifest records absolute destinations" || bad "manifest keys not absolute"
 
+# A file key with a trailing separator aliases the same native path after
+# normalization. Provenance validation must reject it with rc=5 before an
+# uninstall can remove any artifact or rewrite the manifest.
+TRAIL_MANIFEST="$TMP/manifest.before-trailing-key.json"
+cp "$HOME/.kiro/zensu/manifest.json" "$TRAIL_MANIFEST"
+TRAIL_ARTIFACT="$HOME/.kiro/agents/zensu.json"
+TRAIL_HASH="$(hash_file "$TRAIL_ARTIFACT")"
+MANIFEST="$HOME/.kiro/zensu/manifest.json" ARTIFACT="$TRAIL_ARTIFACT" node - <<'NODE'
+const fs = require("fs");
+const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+const hash = manifest.files[process.env.ARTIFACT];
+if (!hash) process.exit(1);
+delete manifest.files[process.env.ARTIFACT];
+manifest.files[`${process.env.ARTIFACT}/`] = hash;
+fs.writeFileSync(process.env.MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
+NODE
+TRAIL_BYTES="$(cat "$HOME/.kiro/zensu/manifest.json")"
+node "$HELPER" preflight "$HOME/.kiro/zensu/manifest.json" "$HOME/.kiro/zensu/VERSION" \
+  "$(cat "$ROOT/VERSION")" "$HOME/.kiro" "$HOME" 1 >/dev/null 2>&1; TRAIL_PREFLIGHT_RC=$?
+bash "$INSTALL" --scope user --uninstall --force >/dev/null 2>&1; TRAIL_UNINSTALL_RC=$?
+if [ "$TRAIL_PREFLIGHT_RC" -eq 5 ] && [ "$TRAIL_UNINSTALL_RC" -ne 0 ] && \
+   [ "$(cat "$HOME/.kiro/zensu/manifest.json")" = "$TRAIL_BYTES" ] && \
+   [ -f "$TRAIL_ARTIFACT" ] && [ "$(hash_file "$TRAIL_ARTIFACT")" = "$TRAIL_HASH" ]; then
+  ok "trailing-separator manifest key fails rc=5 before atomic uninstall mutation"
+else
+  bad "trailing-separator manifest key changed manifest or installed artifacts"
+fi
+cp "$TRAIL_MANIFEST" "$HOME/.kiro/zensu/manifest.json"
+
 # 3) idempotency: re-run -> nothing changes (portable mtime)
 M1="$(mt "$HOME/.kiro/agents/zensu.json")"
 sleep 1
@@ -93,11 +239,11 @@ M2="$(mt "$HOME/.kiro/agents/zensu.json")"
 
 # 4) user-modified file is SKIPped — and the guard SURVIVES further upgrades
 printf '\n# user tweak\n' >> "$HOME/.kiro/skills/zensu-help/SKILL.md"
-S1="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S1="$(hash_file "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (1st upgrade)" || bad "no SKIP warning (1st upgrade)"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
-S3="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S3="$(hash_file "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 [ "$S1" = "$S3" ] && ok "user-modified file preserved across TWO upgrades" || bad "guard lost after manifest rewrite (2nd upgrade overwrote)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (2nd upgrade)" || bad "no SKIP warning (2nd upgrade)"
 
@@ -333,8 +479,7 @@ fi
 #     it lets the waiting process finish with a valid runtime.
 HELPER="$ROOT/scripts/install-support.js"
 LOCK_HOME="$TMP/concurrent-home"; mkdir -p "$LOCK_HOME"
-OWNER_PID="$$"
-case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) OWNER_PID="$(ps -p "$$" -o winpid= | tr -d '[:space:]')" ;; esac
+OWNER_PID="$LIVE_PID"
 LOCK_PATH="$LOCK_HOME/.zensu-kiro-install.lock"
 TOKEN="$(node "$HELPER" acquire-lock "$LOCK_HOME" "$LOCK_PATH" "$OWNER_PID" 2>/dev/null)"
 HOME="$LOCK_HOME" bash "$INSTALL" --scope user --no-default >"$TMP/install-held.log" 2>&1 & HELD_PID=$!

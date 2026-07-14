@@ -51,6 +51,46 @@ done
 command -v node >/dev/null 2>&1 || { echo "FATAL: node is required (all JSON operations use node)" >&2; exit 1; }
 INSTALL_SUPPORT="$SRC/scripts/install-support.js"
 [ -f "$INSTALL_SUPPORT" ] || { echo "FATAL: installer support helper is missing" >&2; exit 1; }
+
+configure_windows_native_tools() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      case "${BASH:-}" in /*) ;; *) return 1 ;; esac
+      # Keep logical anchors raw in native Node while retaining normal MSYS
+      # argv conversion for script/executable paths.
+      local raw_name
+      if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+          case ";${MSYS2_ENV_CONV_EXCL:-};" in
+            *";$raw_name;"*) ;;
+            *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;
+          esac
+        done
+      fi
+      export MSYS2_ENV_CONV_EXCL
+      local cygpath_posix="${BASH%/*}/cygpath.exe"
+      local bash_posix="$BASH"
+      case "$bash_posix" in *.exe) ;; *) [ -x "${bash_posix}.exe" ] && bash_posix="${bash_posix}.exe" ;; esac
+      [ -x "$cygpath_posix" ] || return 1
+      ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE="$("$cygpath_posix" -m "$cygpath_posix" 2>/dev/null)" || return 1
+      ZENSU_KIRO_TRUSTED_BASH_NATIVE="$("$cygpath_posix" -m "$bash_posix" 2>/dev/null)" || return 1
+      case "$ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE$ZENSU_KIRO_TRUSTED_BASH_NATIVE" in *[$'\r\n\t']*|'') return 1 ;; esac
+      export ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE ZENSU_KIRO_TRUSTED_BASH_NATIVE
+      ;;
+  esac
+}
+configure_windows_native_tools || { echo "FATAL: cannot bind trusted Git Bash path tools" >&2; exit 1; }
+NATIVE_ANCHOR_HELPER="$SRC/hooks/lib/resolve-native-anchor.js"
+[ -f "$NATIVE_ANCHOR_HELPER" ] || { echo "FATAL: native anchor resolver is missing" >&2; exit 1; }
+ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>&1)"; ANCHOR_RC=$?
+[ "$ANCHOR_RC" -eq 0 ] || { echo "FATAL: unsafe HOME: $ZENSU_KIRO_HOME_ANCHOR_NATIVE" >&2; exit 1; }
+ZENSU_KIRO_WORKSPACE_ANCHOR_RAW="$PWD"
+ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_WORKSPACE_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>&1)"; ANCHOR_RC=$?
+[ "$ANCHOR_RC" -eq 0 ] || { echo "FATAL: unsafe workspace path: $ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE" >&2; exit 1; }
+export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
+export ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE
+
 BASE_ERROR="$(node "$INSTALL_SUPPORT" validate-base "${HOME:-}" 2>/dev/null)"; BASE_RC=$?
 [ "$BASE_RC" -eq 0 ] || { echo "FATAL: unsafe HOME: $BASE_ERROR" >&2; exit 1; }
 BASE_ERROR="$(node "$INSTALL_SUPPORT" validate-base "$PWD" 2>/dev/null)"; BASE_RC=$?
@@ -96,13 +136,20 @@ say() { printf '%s\n' "$*"; }
 LOCK_DIR="$HOME/.zensu-kiro-install.lock"
 LOCK_HELD=0
 LOCK_TOKEN=""
-LOCK_OWNER_PID="$$"
-case "$(uname -s 2>/dev/null || true)" in
-  MINGW*|MSYS*|CYGWIN*)
-    NATIVE_PID="$(ps -p "$$" -o winpid= 2>/dev/null | tr -d '[:space:]')"
-    [ -n "$NATIVE_PID" ] && LOCK_OWNER_PID="$NATIVE_PID"
-    ;;
-esac
+LOCK_OWNER_PID="1"
+if [ "$DRY" -eq 0 ]; then
+  # Invoke Node directly and capture through a file. Command substitution would
+  # make process.ppid identify a short-lived subshell instead of this installer.
+  LOCK_PID_FILE="$(mktemp)" || { echo "FATAL: cannot allocate native PID capture" >&2; exit 1; }
+  if ! node -p 'process.ppid' > "$LOCK_PID_FILE" 2>/dev/null; then
+    rm -f "$LOCK_PID_FILE"
+    echo "FATAL: cannot determine native shell PID for install lock" >&2
+    exit 1
+  fi
+  IFS= read -r LOCK_OWNER_PID < "$LOCK_PID_FILE" || LOCK_OWNER_PID=""
+  rm -f "$LOCK_PID_FILE"
+  case "$LOCK_OWNER_PID" in ''|*[!0-9]*) echo "FATAL: invalid native shell PID for install lock" >&2; exit 1 ;; esac
+fi
 USER_LIST=""; SCOPE_LIST=""; PRESERVE_LIST=""
 cleanup() {
   [ -n "$USER_LIST" ] && rm -f "$USER_LIST" 2>/dev/null
@@ -210,7 +257,7 @@ install_file() {
   local src="$1" dst="$2" list="$3" root="$4" anchor="$5" render="${6:-no}"
   local content old want recorded state result rc executable=0 expected_hash="-"
   if [ "$render" = "render" ]; then
-    content="$(node "$INSTALL_SUPPORT" render-json "$src" "$ZENSU_HOME" 2>/dev/null)"; rc=$?
+    content="$(node "$INSTALL_SUPPORT" render-json "$ZENSU_HOME" < "$src" 2>/dev/null)"; rc=$?
     [ "$rc" -eq 0 ] || { echo "FATAL: cannot render $src safely: $content" >&2; exit 1; }
   else
     content="$(cat "$src")"
@@ -261,7 +308,7 @@ install_file() {
 
 write_manifest() { # $1=manifest $2=list $3=root $4=anchor
   local result rc
-  result="$(node "$INSTALL_SUPPORT" write-manifest "$1" "$2" "$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" "$3" "$4" 2>/dev/null)"; rc=$?
+  result="$(node "$INSTALL_SUPPORT" write-manifest "$1" "$(cat "$SRC/VERSION" 2>/dev/null || echo '?')" "$3" "$4" < "$2" 2>/dev/null)"; rc=$?
   [ "$rc" -eq 0 ] || { echo "FATAL: cannot publish manifest safely: $result" >&2; exit 1; }
 }
 

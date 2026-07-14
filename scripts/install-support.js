@@ -2,10 +2,10 @@
 "use strict";
 
 // Security-sensitive primitives for install.sh. Paths passed by Git Bash can
-// be POSIX-style even though Node is native Windows, so filesystem operations
-// normalize /c/... while manifest keys retain the shell spelling used at
-// publication. HOME/workspace are trusted anchors; every component created beneath
-// those anchors is checked with lstat and symlinks are rejected.
+// be POSIX-style even though Node is native Windows. Bash resolves each trusted
+// anchor once and exports its raw + native identities; every child is then
+// derived from validated relative components without converting untrusted
+// manifest keys. Existing components are checked with lstat and reject links.
 
 const crypto = require("crypto");
 const fs = require("fs");
@@ -20,19 +20,40 @@ class InstallError extends Error {
 }
 
 const fail = (message, code = 3) => { throw new InstallError(message, code); };
-const norm = value => process.platform === "win32"
-  ? value.replace(/^\/([A-Za-z])(\/|$)/, (_m, drive, slash) => `${drive.toUpperCase()}:${slash || ""}`)
-  : value;
 const fold = value => process.platform === "win32" ? value.toLowerCase() : value;
-const absolute = (value, label) => {
-  if (typeof value !== "string" || !value || /[\0\r\n\t]/.test(value)) fail(`${label} is empty or contains control characters`);
-  const converted = norm(value);
-  if (!path.isAbsolute(converted)) fail(`${label} is not absolute`);
-  return path.resolve(converted);
+const analyzePath = (value, label, code = 3) => {
+  if (typeof value !== "string" || !value || /[\0\r\n\t]/.test(value)) fail(`${label} is empty or contains control characters`, code);
+  if (process.platform === "win32" && value.startsWith("/") && !value.startsWith("//")) {
+    if (!path.posix.isAbsolute(value)) fail(`${label} is not absolute`, code);
+    if (value.includes("\\")) fail(`${label} contains a Windows separator in MSYS syntax`, code);
+    const components = value === "/" ? [] : value.split("/").slice(1);
+    if (components.some(component => !component || component === "." || component === ".." ||
+        component.includes(":") || /[. ]$/.test(component))) {
+      fail(`${label} contains a non-canonical or Windows-aliased component`, code);
+    }
+    return { api: path.posix, kind: "msys", original: value, value: path.posix.resolve(value) };
+  }
+  const api = process.platform === "win32" ? path.win32 : path;
+  if (!api.isAbsolute(value)) fail(`${label} is not absolute`, code);
+  if (process.platform === "win32") {
+    const root = path.win32.parse(value).root;
+    const remainder = value.slice(root.length);
+    const components = remainder ? remainder.split(/[\\/]/) : [];
+    if (components.some(component => !component || component === "." || component === ".." ||
+        component.includes(":") || /[. ]$/.test(component))) {
+      fail(`${label} contains a non-canonical or Windows-aliased component`, code);
+    }
+  }
+  return { api, kind: "native", original: value, value: api.resolve(value) };
 };
-const within = (root, target) => {
-  const rel = path.relative(root, target);
-  return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
+const relativeWithin = (parent, child) => {
+  if (parent.kind !== child.kind) return null;
+  const rel = parent.api.relative(parent.value, child.value);
+  if (rel === "") return "";
+  if (rel === ".." || rel.startsWith(`..${parent.api.sep}`) || parent.api.isAbsolute(rel)) {
+    return null;
+  }
+  return rel;
 };
 const exists = file => {
   try { fs.lstatSync(file); return true; } catch (error) {
@@ -54,11 +75,129 @@ const hashFileDescriptor = fd => {
   return digest.digest("hex");
 };
 const sameIdentity = (left, right) => left.dev === right.dev && left.ino === right.ino;
-const manifestKey = value => fold(absolute(value, "manifest path"));
+const mappingSpecs = [
+  ["ZENSU_KIRO_HOME_ANCHOR_RAW", "ZENSU_KIRO_HOME_ANCHOR_NATIVE"],
+  ["ZENSU_KIRO_WORKSPACE_ANCHOR_RAW", "ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE"],
+  ...(process.env.NODE_ENV === "test" ? [["ZENSU_KIRO_TEST_ANCHOR_RAW", "ZENSU_KIRO_TEST_ANCHOR_NATIVE"]] : [])
+];
+const mappings = mappingSpecs.flatMap(([rawName, nativeName]) => {
+  const raw = process.env[rawName] || "";
+  const native = process.env[nativeName] || "";
+  if (!raw && !native) return [];
+  if (!raw || !native) fail("trusted anchor mapping is incomplete");
+  const rawPath = analyzePath(raw, "raw trusted anchor");
+  const nativePath = analyzePath(native, "native trusted anchor");
+  if (process.platform === "win32" && nativePath.kind !== "native") fail("native trusted anchor is not native Windows syntax");
+  let stat;
+  try { stat = fs.statSync(nativePath.value); } catch (_) { fail("native trusted anchor is missing"); }
+  if (!stat.isDirectory()) fail("native trusted anchor is not a directory");
+  return [{ raw: rawPath, native: nativePath, realNative: fs.realpathSync(nativePath.value) }];
+});
+
+function safeParts(relative, source, label) {
+  if (!relative) return [];
+  const parts = relative.split(source.api.sep);
+  if (parts.some(part => !part || part === "." || part === ".." ||
+      (process.platform === "win32" && (part.includes("\\") || part.includes(":") || /[. ]$/.test(part))))) {
+    fail(`${label} contains an unsafe relative component`);
+  }
+  return parts;
+}
+
+function contextFromMapping(mapping, anchor, relative, source) {
+  const parts = safeParts(relative, source, "anchor");
+  const rawValue = mapping.raw.api.resolve(mapping.raw.value, ...parts);
+  const nativeLogicalValue = path.resolve(mapping.native.value, ...parts);
+  const logicalEscape = path.relative(mapping.native.value, nativeLogicalValue);
+  if (logicalEscape === ".." || logicalEscape.startsWith(`..${path.sep}`) || path.isAbsolute(logicalEscape)) fail("anchor escaped its logical native mapping");
+  const nativeValue = path.resolve(mapping.realNative, ...parts);
+  const physicalEscape = path.relative(mapping.realNative, nativeValue);
+  if (physicalEscape === ".." || physicalEscape.startsWith(`..${path.sep}`) || path.isAbsolute(physicalEscape)) fail("anchor escaped its physical native mapping");
+  let stat;
+  try { stat = fs.statSync(nativeValue); } catch (_) { fail("trusted anchor is missing"); }
+  if (!stat.isDirectory()) fail("trusted anchor is not a directory");
+  return {
+    raw: analyzePath(rawValue, "raw anchor"),
+    nativeLogical: analyzePath(nativeLogicalValue, "native anchor"),
+    native: fs.realpathSync(nativeValue),
+    source: anchor
+  };
+}
+
+const anchorCache = new Map();
+function anchorContext(anchorValue) {
+  const anchor = analyzePath(anchorValue, "anchor");
+  const cacheKey = `${anchor.kind}:${anchor.value}`;
+  if (anchorCache.has(cacheKey)) return anchorCache.get(cacheKey);
+  const candidates = [];
+  for (const mapping of mappings) {
+    const rawRelative = relativeWithin(mapping.raw, anchor);
+    if (rawRelative !== null) candidates.push({ mapping, relative: rawRelative, source: mapping.raw });
+    const nativeRelative = relativeWithin(mapping.native, anchor);
+    if (nativeRelative !== null) candidates.push({ mapping, relative: nativeRelative, source: mapping.native });
+  }
+  candidates.sort((left, right) => right.source.value.length - left.source.value.length);
+  let context;
+  if (candidates.length) {
+    const selected = candidates[0];
+    context = contextFromMapping(selected.mapping, anchor, selected.relative, selected.source);
+  } else if (process.platform !== "win32") {
+    let stat;
+    try { stat = fs.statSync(anchor.value); } catch (_) { fail("trusted anchor is missing"); }
+    if (!stat.isDirectory()) fail("trusted anchor is not a directory");
+    const native = fs.realpathSync(anchor.value);
+    context = { raw: anchor, nativeLogical: analyzePath(native, "native anchor"), native, source: anchor };
+  } else {
+    fail("anchor is not covered by a trusted raw/native mapping");
+  }
+  anchorCache.set(cacheKey, context);
+  return context;
+}
+
+function deriveChild(context, value, label) {
+  const child = analyzePath(value, label);
+  let relative = relativeWithin(context.raw, child);
+  let source = context.raw;
+  if (relative === null) {
+    relative = relativeWithin(context.nativeLogical, child);
+    source = context.nativeLogical;
+  }
+  if (relative === null) fail(`${label} escapes its trusted anchor`);
+  const parts = safeParts(relative, source, label);
+  const target = path.resolve(context.native, ...parts);
+  const nativeRelative = path.relative(context.native, target);
+  if (nativeRelative === ".." || nativeRelative.startsWith(`..${path.sep}`) || path.isAbsolute(nativeRelative)) {
+    fail(`${label} escapes its native anchor`);
+  }
+  return { logical: child, target };
+}
+
+const logicalDirname = value => {
+  const analyzed = analyzePath(value, "path");
+  return analyzed.api.dirname(analyzed.original);
+};
+
+function assertCanonicalRawPath(value, label, code) {
+  if (value.endsWith("/") || (process.platform === "win32" && value.endsWith("\\"))) {
+    fail(`${label} has a trailing separator`, code);
+  }
+  const analyzed = analyzePath(value, label, code);
+  let canonical;
+  if (process.platform === "win32" && analyzed.kind === "msys") {
+    canonical = path.posix.normalize(value) === value;
+  } else if (process.platform === "win32") {
+    const windowsSpelling = value.replace(/\//g, "\\");
+    canonical = fold(path.win32.normalize(windowsSpelling)) === fold(windowsSpelling);
+  } else {
+    canonical = analyzed.value === value;
+  }
+  if (!canonical) fail(`${label} is not canonical`, code);
+  return analyzed;
+}
 
 function testBarrier(name) {
   if (process.env.NODE_ENV !== "test" || !process.env.ZENSU_INSTALL_TEST_BARRIER_DIR) return;
-  const directory = absolute(process.env.ZENSU_INSTALL_TEST_BARRIER_DIR, "test barrier directory");
+  const directory = anchorContext(process.env.ZENSU_INSTALL_TEST_BARRIER_DIR).native;
   const stat = fs.lstatSync(directory);
   if (stat.isSymbolicLink() || !stat.isDirectory()) fail("test barrier directory is unsafe");
   fs.writeFileSync(path.join(directory, `${name}.reached`), "reached\n", { flag: "wx", mode: 0o600 });
@@ -72,29 +211,22 @@ function testBarrier(name) {
 }
 
 function resolveGuarded(rootValue, targetValue, anchorValue) {
-  const anchor = absolute(anchorValue, "anchor");
-  const root = absolute(rootValue, "allowed root");
-  const target = absolute(targetValue, "target path");
-  if (!within(anchor, root)) fail("allowed root escapes its trusted anchor");
-  if (!within(root, target)) fail(`path escapes allowed root: ${targetValue}`);
-
-  let anchorStat;
-  try { anchorStat = fs.statSync(anchor); } catch (_) { fail("trusted anchor is missing"); }
-  if (!anchorStat.isDirectory()) fail("trusted anchor is not a directory");
-  const realAnchor = fs.realpathSync(anchor);
-  const actualRoot = path.resolve(realAnchor, path.relative(anchor, root));
-  const actualTarget = path.resolve(realAnchor, path.relative(anchor, target));
-  if (!within(actualRoot, actualTarget)) fail(`canonical path escapes allowed root: ${targetValue}`);
-
-  const relative = path.relative(realAnchor, actualTarget);
-  let cursor = realAnchor;
+  const context = anchorContext(anchorValue);
+  const root = deriveChild(context, rootValue, "allowed root");
+  const target = deriveChild(context, targetValue, "target path");
+  const targetFromRoot = path.relative(root.target, target.target);
+  if (targetFromRoot === ".." || targetFromRoot.startsWith(`..${path.sep}`) || path.isAbsolute(targetFromRoot)) {
+    fail(`path escapes allowed root: ${targetValue}`);
+  }
+  const relative = path.relative(context.native, target.target);
+  let cursor = context.native;
   for (const part of relative.split(path.sep).filter(Boolean)) {
     cursor = path.join(cursor, part);
     if (!exists(cursor)) continue;
     const stat = fs.lstatSync(cursor);
     if (stat.isSymbolicLink()) fail(`symlink component refused: ${targetValue}`);
   }
-  return { root: actualRoot, target: actualTarget, anchor: realAnchor };
+  return { root: root.target, target: target.target, anchor: context.native };
 }
 
 function ensureDirectory(rootValue, directoryValue, anchorValue) {
@@ -162,7 +294,7 @@ function claimExpectedFile(rootValue, targetValue, anchorValue, expectedHash, re
   if (!/^[a-f0-9]{64}$/.test(replacementHash || "")) fail("invalid replacement file hash");
   const current = regularState(rootValue, targetValue, anchorValue);
   if (current.state !== "file") fail(`target changed since inspection: ${targetValue}`);
-  const parent = resolveGuarded(rootValue, path.dirname(targetValue), anchorValue);
+  const parent = resolveGuarded(rootValue, logicalDirname(targetValue), anchorValue);
   if (fold(parent.target) !== fold(path.dirname(current.path))) fail("target parent changed before claim");
   testBarrier(barrierName);
   const claimed = `${current.path}.zensu-recovery.${expectedHash}.${replacementHash}.${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
@@ -178,7 +310,7 @@ function claimExpectedFile(rootValue, targetValue, anchorValue, expectedHash, re
 
 function atomicWrite(rootValue, targetValue, anchorValue, executable, expectedState, expectedHash, content) {
   const logicalTarget = targetValue;
-  ensureDirectory(rootValue, path.dirname(logicalTarget), anchorValue);
+  ensureDirectory(rootValue, logicalDirname(logicalTarget), anchorValue);
   const current = regularState(rootValue, logicalTarget, anchorValue);
   if (current.state === "other") fail(`write target is not a regular file: ${logicalTarget}`);
   if (process.env.NODE_ENV === "test" && process.env.ZENSU_INSTALL_TEST_FAIL_TARGET &&
@@ -206,7 +338,7 @@ function atomicWrite(rootValue, targetValue, anchorValue, executable, expectedSt
     fs.fchmodSync(fd, mode);
     fs.closeSync(fd); fd = undefined;
 
-    const parent = resolveGuarded(rootValue, path.dirname(logicalTarget), anchorValue);
+    const parent = resolveGuarded(rootValue, logicalDirname(logicalTarget), anchorValue);
     if (fold(parent.target) !== fold(directory)) fail("write parent changed during publication");
     if (expectedState === "missing") {
       testBarrier("atomic-write");
@@ -322,16 +454,23 @@ function validateManifestEntries(manifest, rootValue, anchorValue) {
   const seen = new Map();
   for (const [file, hash] of Object.entries(manifest.files)) {
     if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)) fail("invalid manifest file entry", 5);
+    const logicalFile = assertCanonicalRawPath(file, "manifest path", 5);
     const resolved = resolveGuarded(rootValue, file, anchorValue);
-    const canonical = manifestKey(file);
+    const canonical = fold(resolved.target);
     // Classification in install.sh must never see a raw spelling that points
     // somewhere different after normalization (for example
-    // `zensu/../agents/...`). Git Bash drive paths remain supported by first
-    // converting `/c/...` and normalizing slash direction on native Windows.
-    const spelling = process.platform === "win32"
-      ? fold(norm(file).replace(/[\\/]/g, path.sep))
-      : file;
-    if (spelling !== canonical) fail("manifest path is not canonical", 5);
+    // `zensu/../agents/...`). Git Bash paths keep their POSIX spelling here;
+    // the separately derived native identity comes from the bound anchor.
+    let canonicalSpelling;
+    if (process.platform === "win32" && file.startsWith("/") && !file.startsWith("//")) {
+      canonicalSpelling = path.posix.normalize(file) === file;
+    } else if (process.platform === "win32") {
+      const windowsSpelling = file.replace(/\//g, "\\");
+      canonicalSpelling = fold(path.win32.normalize(windowsSpelling)) === fold(windowsSpelling);
+    } else {
+      canonicalSpelling = file === logicalFile.value;
+    }
+    if (!canonicalSpelling) fail("manifest path is not canonical", 5);
     // On case-insensitive volumes, lstat and even realpath may preserve an
     // alias such as `HOOKS` for an on-disk `hooks` directory. Bash
     // classification remains textual, so accepting that alias could make
@@ -386,11 +525,11 @@ function shellDoubleQuoted(value) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`");
 }
 
-function renderJson(source, home) {
+function renderJson(home) {
   if (/[\x00-\x1f\x7f]/.test(home)) fail("HOME contains control characters");
   let value;
-  try { value = JSON.parse(fs.readFileSync(source, "utf8")); }
-  catch (_) { fail(`agent source is invalid JSON: ${source}`); }
+  try { value = JSON.parse(fs.readFileSync(0, "utf8")); }
+  catch (_) { fail("agent source is invalid JSON"); }
   const walk = (item, key = "") => {
     if (Array.isArray(item)) return item.map(entry => walk(entry, key));
     if (item && typeof item === "object") {
@@ -410,9 +549,9 @@ function manifestLookup(args) {
   const parsed = readManifest(manifestValue, rootValue, anchorValue);
   if (!parsed) return;
   validateManifestEntries(parsed.manifest, rootValue, anchorValue);
-  const wanted = manifestKey(targetValue);
+  const wanted = fold(resolveGuarded(rootValue, targetValue, anchorValue).target);
   for (const [file, hash] of Object.entries(parsed.manifest.files)) {
-    if (manifestKey(file) === wanted) {
+    if (fold(resolveGuarded(rootValue, file, anchorValue).target) === wanted) {
       process.stdout.write(hash);
       return;
     }
@@ -428,9 +567,9 @@ function manifestLines(args) {
 }
 
 function writeManifest(args) {
-  const [manifestValue, listValue, version, rootValue, anchorValue] = args;
+  const [manifestValue, version, rootValue, anchorValue] = args;
   if (!parseSemVer(version)) fail("source VERSION is invalid");
-  const lines = fs.readFileSync(norm(listValue), "utf8").split("\n").filter(Boolean);
+  const lines = fs.readFileSync(0, "utf8").split("\n").filter(Boolean);
   const files = {};
   const seen = new Map();
   for (const line of lines) {
@@ -439,8 +578,9 @@ function writeManifest(args) {
     const file = line.slice(0, index);
     const hash = line.slice(index + 1);
     if (!/^[a-f0-9]{64}$/.test(hash)) fail("invalid installer list hash");
-    resolveGuarded(rootValue, file, anchorValue);
-    const canonical = manifestKey(file);
+    assertCanonicalRawPath(file, "installer list path", 3);
+    const resolved = resolveGuarded(rootValue, file, anchorValue);
+    const canonical = fold(resolved.target);
     if (seen.has(canonical) && seen.get(canonical) !== file) fail("duplicate canonical installer path");
     seen.set(canonical, file);
     files[file] = hash;
@@ -469,7 +609,7 @@ function main() {
     case "validate-base": {
       const value = args[0] || "";
       if (/[\x00-\x1f\x7f]/.test(value)) fail("base path contains control characters");
-      const base = absolute(value, "base path");
+      const base = anchorContext(value).native;
       const stat = fs.statSync(base);
       if (!stat.isDirectory()) fail("base path is not a directory");
       break;
@@ -481,7 +621,7 @@ function main() {
     case "remove": safeRemove(args[0], args[1], args[2], args[3]); break;
     case "mkdir": ensureDirectory(args[0], args[1], args[2]); break;
     case "preflight": preflight(args); break;
-    case "render-json": renderJson(args[0], args[1]); break;
+    case "render-json": renderJson(args[0]); break;
     case "manifest-lookup": manifestLookup(args); break;
     case "manifest-lines": manifestLines(args); break;
     case "write-manifest": writeManifest(args); break;

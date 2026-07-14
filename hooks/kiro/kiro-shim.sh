@@ -43,15 +43,51 @@ runtime_unavailable() {
 }
 
 command -v node >/dev/null 2>&1 || runtime_unavailable
+configure_windows_native_tools() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      case "${BASH:-}" in /*) ;; *) return 1 ;; esac
+      # Keep logical anchors raw in native Node while retaining normal MSYS
+      # argv conversion for script/executable paths.
+      local raw_name
+      if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+          case ";${MSYS2_ENV_CONV_EXCL:-};" in
+            *";$raw_name;"*) ;;
+            *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;
+          esac
+        done
+      fi
+      export MSYS2_ENV_CONV_EXCL
+      local cygpath_posix="${BASH%/*}/cygpath.exe"
+      local bash_posix="$BASH"
+      case "$bash_posix" in *.exe) ;; *) [ -x "${bash_posix}.exe" ] && bash_posix="${bash_posix}.exe" ;; esac
+      [ -x "$cygpath_posix" ] || return 1
+      ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE="$("$cygpath_posix" -m "$cygpath_posix" 2>/dev/null)" || return 1
+      ZENSU_KIRO_TRUSTED_BASH_NATIVE="$("$cygpath_posix" -m "$bash_posix" 2>/dev/null)" || return 1
+      case "$ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE$ZENSU_KIRO_TRUSTED_BASH_NATIVE" in *[$'\r\n\t']*|'') return 1 ;; esac
+      export ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE ZENSU_KIRO_TRUSTED_BASH_NATIVE
+      ;;
+  esac
+}
+configure_windows_native_tools || runtime_unavailable
+NATIVE_ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+[ -f "$NATIVE_ANCHOR_HELPER" ] || runtime_unavailable
+ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || runtime_unavailable
+export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
 LOCK_HELPER="$ROOT/hooks/lib/kiro-runtime-lock.js"
 LOCK_PATH="$HOME/.zensu-kiro-install.lock"
-LOCK_OWNER_PID="$$"
-case "$(uname -s 2>/dev/null || true)" in
-  MINGW*|MSYS*|CYGWIN*)
-    NATIVE_PID="$(ps -p "$$" -o winpid= 2>/dev/null | tr -d '[:space:]')"
-    [ -n "$NATIVE_PID" ] && LOCK_OWNER_PID="$NATIVE_PID"
-    ;;
-esac
+# Invoke Node directly: inside command substitution process.ppid would belong
+# to a transient subshell and the runtime lock would immediately look stale.
+LOCK_PID_FILE="$(mktemp 2>/dev/null)" || runtime_unavailable
+if ! node -p 'process.ppid' > "$LOCK_PID_FILE" 2>/dev/null; then
+  rm -f "$LOCK_PID_FILE" 2>/dev/null || true
+  runtime_unavailable
+fi
+IFS= read -r LOCK_OWNER_PID < "$LOCK_PID_FILE" || LOCK_OWNER_PID=""
+rm -f "$LOCK_PID_FILE" 2>/dev/null || true
+case "$LOCK_OWNER_PID" in ''|*[!0-9]*) runtime_unavailable ;; esac
 LOCK_TOKEN=""
 [ -f "$LOCK_HELPER" ] || runtime_unavailable
 LOCK_ATTEMPT=0

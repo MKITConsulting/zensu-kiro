@@ -4,6 +4,26 @@ set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HELPER="$ROOT/scripts/install-support.js"
 RUNTIME_LOCK="$ROOT/hooks/lib/kiro-runtime-lock.js"
+ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+CYGPATH_POSIX=""
+case "${OSTYPE:-}" in
+  msys*|cygwin*)
+    if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        case ";${MSYS2_ENV_CONV_EXCL:-};" in
+          *";$RAW_ENV_NAME;"*) ;;
+          *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
+        esac
+      done
+    fi
+    export MSYS2_ENV_CONV_EXCL
+    CYGPATH_POSIX="${BASH%/*}/cygpath.exe"
+    BASH_POSIX="$BASH"; case "$BASH_POSIX" in *.exe) ;; *) [ -x "${BASH_POSIX}.exe" ] && BASH_POSIX="${BASH_POSIX}.exe" ;; esac
+    ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE="$("$CYGPATH_POSIX" -m "$CYGPATH_POSIX")"
+    ZENSU_KIRO_TRUSTED_BASH_NATIVE="$("$CYGPATH_POSIX" -m "$BASH_POSIX")"
+    export ZENSU_KIRO_TRUSTED_CYGPATH_NATIVE ZENSU_KIRO_TRUSTED_BASH_NATIVE
+    ;;
+esac
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -13,10 +33,122 @@ wait_for() { # file
   while [ ! -e "$1" ] && [ "$i" -lt 500 ]; do sleep 0.02; i=$((i+1)); done
   [ -e "$1" ]
 }
+capture_dead_pid() { node -p 'process.pid' > "$1"; }
 
 TMP="$(mktemp -d -t zensu-install-support-XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/root" "$TMP/barrier"
+# Lock liveness is checked by native Node, so fixtures must use a native PID,
+# not Git Bash's separate MSYS PID namespace.
+node -p 'process.ppid' > "$TMP/native-shell.pid"
+LIVE_PID="$(cat "$TMP/native-shell.pid")"
+
+# Native Windows Node must use the converter physically paired with the
+# running Git Bash, convert only the existing anchor, and reject every
+# malformed or unbound converter result before touching a child path.
+if [ -n "$CYGPATH_POSIX" ]; then
+  RAW_ENV_OK=1
+  RAW_ENV_PROBE='/tmp/zensu-env-raw-proof'
+  for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+    RAW_ENV_GOT="$(env "$RAW_ENV_NAME=$RAW_ENV_PROBE" ZENSU_KIRO_RAW_ENV_NAME="$RAW_ENV_NAME" \
+      node -e 'process.stdout.write(process.env[process.env.ZENSU_KIRO_RAW_ENV_NAME] || "")')"
+    [ "$RAW_ENV_GOT" = "$RAW_ENV_PROBE" ] || RAW_ENV_OK=0
+  done
+  [ "$RAW_ENV_OK" -eq 1 ] && ok "MSYS keeps every logical anchor environment value byte-for-byte raw" || bad "MSYS converted a logical anchor environment value"
+  if ZENSU_KIRO_ANCHOR_RAW="$RAW_ENV_PROBE" node -e '
+    const path = require("path");
+    if (process.argv[1] === process.env.ZENSU_KIRO_ANCHOR_RAW || !path.win32.isAbsolute(process.argv[1])) process.exit(1);
+  ' "$RAW_ENV_PROBE"; then
+    ok "MSYS argv conversion remains enabled for native Node"
+  else
+    bad "MSYS argv conversion was globally disabled"
+  fi
+
+  mkdir -p "$TMP/unrelated" "$TMP/fake-bin"
+  NODE_NATIVE="$(node -p 'process.execPath')"
+  FIXTURE_NATIVE="$("$CYGPATH_POSIX" -m "$ROOT/tests/fixtures/fake-cygpath.js")"
+  UNRELATED_NATIVE="$("$CYGPATH_POSIX" -m "$TMP/unrelated")"
+  printf '#!/usr/bin/env bash\nprintf touched > "%s"\nexit 0\n' "$TMP/path-cygpath-ran" > "$TMP/fake-bin/cygpath"
+  chmod +x "$TMP/fake-bin/cygpath"
+  PATH="$TMP/fake-bin:$PATH" ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] && [ ! -e "$TMP/path-cygpath-ran" ] && ok "trusted converter ignores a PATH-shadowed cygpath" || bad "PATH-shadowed cygpath was executed"
+
+  ZENSU_KIRO_TEST_CYGPATH_NATIVE='C:\zensu-missing\cygpath.exe' NODE_ENV=test \
+    ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && ok "missing converter fails closed" || bad "missing converter was accepted"
+
+  for mode in nonzero multiline relative unrelated; do
+    ZENSU_KIRO_TEST_CYGPATH_NATIVE="$NODE_NATIVE" \
+    ZENSU_KIRO_TEST_CYGPATH_SCRIPT_NATIVE="$FIXTURE_NATIVE" \
+    ZENSU_KIRO_TEST_CYGPATH_MODE="$mode" \
+    ZENSU_KIRO_TEST_UNRELATED_NATIVE="$UNRELATED_NATIVE" \
+    NODE_ENV=test ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+    [ "$RC" -ne 0 ] && ok "$mode converter output fails closed" || bad "$mode converter output was accepted"
+  done
+
+  ZENSU_KIRO_TEST_CYGPATH_NATIVE="$NODE_NATIVE" \
+  ZENSU_KIRO_TEST_CYGPATH_SCRIPT_NATIVE="$FIXTURE_NATIVE" \
+  ZENSU_KIRO_TEST_CYGPATH_MODE=timeout ZENSU_KIRO_TEST_CONVERTER_TIMEOUT_MS=50 \
+  NODE_ENV=test ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && ok "timed-out converter fails closed" || bad "timed-out converter was accepted"
+
+  ZENSU_KIRO_TEST_CYGPATH_NATIVE='C:\zensu-missing\cygpath.exe' \
+    ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] && ok "converter override is ignored outside test mode" || bad "production accepted a test converter override"
+else
+  for label in PATH-shadow missing nonzero multiline relative unrelated timeout production-override; do ok "skipped $label converter case (requires native Windows Node under Git Bash)"; done
+fi
+
+# Direct helper invocations below all live under this one bound anchor. Child
+# paths are derived from its validated raw/native pair without further tool
+# execution or namespace conversion.
+ZENSU_KIRO_HOME_ANCHOR_RAW="$TMP"
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELPER")" || {
+  echo "could not resolve test anchor" >&2; exit 1;
+}
+export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
+
+for suffix in 'root/../root' 'root/' '/root'; do
+  RAW_ANCHOR="$TMP/$suffix"
+  ZENSU_KIRO_ANCHOR_RAW="$RAW_ANCHOR" node "$ANCHOR_HELPER" >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && ok "non-canonical anchor '$suffix' fails before mapping" || bad "non-canonical anchor '$suffix' was accepted"
+done
+
+if [ -n "$CYGPATH_POSIX" ]; then
+  TMP_NATIVE="$ZENSU_KIRO_HOME_ANCHOR_NATIVE"
+  node "$HELPER" guard "$TMP_NATIVE/root" "$TMP/root" "$TMP_NATIVE" >/dev/null 2>&1; RC=$?
+  [ "$RC" -eq 0 ] && ok "raw and native child namespaces resolve through one bound anchor" || bad "mixed raw/native namespace was rejected"
+
+  printf 'keep\n' > "$TMP/victim"
+  for suffix in 'escape\..\..\victim' 'stream:payload' 'trailing.'; do
+    node "$HELPER" guard "$TMP/root" "$TMP/root/$suffix" "$TMP" >/dev/null 2>&1; RC=$?
+    [ "$RC" -ne 0 ] && [ "$(cat "$TMP/victim")" = keep ] && ok "Windows-aliased component '$suffix' fails closed" || bad "Windows-aliased component '$suffix' escaped its anchor"
+  done
+  node "$RUNTIME_LOCK" acquire "$TMP" "$TMP/.lock\..\victim" "$LIVE_PID" >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && [ "$(cat "$TMP/victim")" = keep ] && ok "runtime lock rejects a backslash escape" || bad "runtime lock accepted a backslash escape"
+else
+  for label in mixed-namespace backslash ADS trailing-dot lock-backslash; do ok "skipped $label path case (requires native Windows Node under Git Bash)"; done
+fi
+
+# Manifest publication uses the same strict raw-path validator as provenance
+# reads, so a fresh manifest can never introduce an alias rejected on upgrade.
+printf 'manifest target\n' > "$TMP/root/manifest-target.txt"
+BAD_MANIFEST="$TMP/root/rejected-manifest.json"
+printf '%s/\t%s\n' "$TMP/root/manifest-target.txt" "$(sha "$TMP/root/manifest-target.txt")" | \
+  node "$HELPER" write-manifest "$BAD_MANIFEST" 1.0.0 "$TMP/root" "$TMP" >/dev/null 2>&1; RC=$?
+[ "$RC" -ne 0 ] && [ ! -e "$BAD_MANIFEST" ] && ok "write-manifest rejects a trailing-separator alias before publication" || bad "write-manifest published a non-canonical path"
+
+if [ "$(node -p 'process.platform')" != "win32" ]; then
+  POSIX_BACKSLASH_FILE="$TMP/root/managed-name\\"
+  POSIX_BACKSLASH_MANIFEST="$TMP/root/backslash-manifest.json"
+  printf 'managed backslash leaf\n' > "$POSIX_BACKSLASH_FILE"
+  printf '%s\t%s\n' "$POSIX_BACKSLASH_FILE" "$(sha "$POSIX_BACKSLASH_FILE")" | \
+    node "$HELPER" write-manifest "$POSIX_BACKSLASH_MANIFEST" 1.0.0 "$TMP/root" "$TMP" >/dev/null 2>&1; WRITE_RC=$?
+  node "$HELPER" preflight "$POSIX_BACKSLASH_MANIFEST" "" 1.0.0 "$TMP/root" "$TMP" 0 >/dev/null 2>&1; PREFLIGHT_RC=$?
+  [ "$WRITE_RC" -eq 0 ] && [ "$PREFLIGHT_RC" -eq 0 ] && ok "POSIX leaf ending in backslash survives manifest write and preflight" || bad "POSIX terminal backslash was treated as a separator"
+else
+  ok "skipped POSIX terminal-backslash manifest case on Windows"
+fi
 
 # Arbitrarily large numeric identifiers must retain exact SemVer precedence.
 printf '1.0.0-beta.9007199254740993\n' > "$TMP/root/VERSION"
@@ -151,27 +283,27 @@ fi
 # Lock ownership uses a random token, rejects active contenders, recovers dead
 # owners, and leaves no partial directory when owner publication fails.
 LOCK="$TMP/.install.lock"
-TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; RC=$?
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ "${#TOKEN}" -eq 64 ]; then ok "lock publishes token-bound owner metadata"; else bad "lock acquisition failed: $TOKEN"; fi
-node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" >/dev/null 2>&1; RC=$?
+node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" >/dev/null 2>&1; RC=$?
 [ "$RC" -eq 75 ] && ok "live lock owner blocks a contender" || bad "live lock was recovered or misclassified (rc=$RC)"
-node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$(printf '0%.0s' {1..64})" >/dev/null 2>&1; RC=$?
+node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$(printf '0%.0s' {1..64})" >/dev/null 2>&1; RC=$?
 [ "$RC" -ne 0 ] && [ -f "$LOCK" ] && [ ! -L "$LOCK" ] && ok "wrong token cannot release a lock" || bad "wrong token released a lock"
-node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$TOKEN" >/dev/null 2>&1
+node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 
 # Recovery is serialized: a slow contender that observed a stale lock cannot
 # later quarantine the live lock published by the winning contender.
-( : ) & DEAD_PID=$!; wait "$DEAD_PID"
+capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$DEAD_PID" >/dev/null 2>&1
 rm -f "$TMP/barrier"/*
 NODE_ENV=test ZENSU_INSTALL_TEST_BARRIER_DIR="$TMP/barrier" \
-  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" > "$TMP/slow-lock.out" 2>&1 & SLOW_LOCK_PID=$!
+  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" > "$TMP/slow-lock.out" 2>&1 & SLOW_LOCK_PID=$!
 if wait_for "$TMP/barrier/lock-recovery-snapshot.reached"; then
-  FAST_TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; FAST_RC=$?
+  FAST_TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; FAST_RC=$?
   : > "$TMP/barrier/lock-recovery-snapshot.release"
   wait "$SLOW_LOCK_PID"; SLOW_RC=$?
   if [ "$FAST_RC" -eq 0 ] && [ "$SLOW_RC" -eq 75 ] && [ -f "$LOCK" ] && \
-     node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$FAST_TOKEN" >/dev/null 2>&1; then
+     node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$FAST_TOKEN" >/dev/null 2>&1; then
     ok "stale recovery never displaces a newly published live lock"
   else
     bad "stale recovery displaced or invalidated the winning live lock"
@@ -183,12 +315,12 @@ else
   rm -rf "$LOCK" "$LOCK.recovery"
 fi
 
-( : ) & DEAD_PID=$!; wait "$DEAD_PID"
+capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$DEAD_PID" >/dev/null 2>&1
-TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; RC=$?
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ]; then
   ok "dead-owner lock is recovered"
-  node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$TOKEN" >/dev/null 2>&1
+  node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 else
   bad "dead-owner lock was not recovered: $TOKEN"
 fi
@@ -196,7 +328,7 @@ fi
 # Recovery-guard reclamation is itself crash-safe. A dead guard and a dead
 # unique claimant are reclaimed, while a live claim remains first-class busy
 # protocol state for every third contender.
-( : ) & DEAD_PID=$!; wait "$DEAD_PID"
+capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$DEAD_PID" >/dev/null 2>&1
 GUARD_TOKEN="$(printf 'c%.0s' {1..64})"
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
@@ -204,11 +336,11 @@ printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:0
 CLAIM_TOKEN="$(printf 'd%.0s' {1..64})"
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z","targetFingerprint":"orphan"}\n' \
   "$DEAD_PID" "$CLAIM_TOKEN" > "$LOCK.recovery.reclaim.$CLAIM_TOKEN"
-TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; RC=$?
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -e "$LOCK.recovery" ] && \
    ! find "$TMP" -maxdepth 1 -name '.install.lock.recovery.reclaim.*' | grep -q .; then
   ok "crash-stranded recovery guard and claimant are recovered"
-  node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$TOKEN" >/dev/null 2>&1
+  node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 else
   bad "crash-stranded recovery protocol state blocked forever: $TOKEN"
   rm -f "$LOCK" "$LOCK.recovery" "$LOCK.recovery.reclaim."*
@@ -218,7 +350,7 @@ fi
 # of them removes those unique files. Disappearing claims are a benign cleanup
 # race: exactly one contender acquires the recovered main lock, every loser is
 # retryable-busy (75), and no contender reports an internal rc=3 failure.
-( : ) & DEAD_PID=$!; wait "$DEAD_PID"
+capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$DEAD_PID" >/dev/null 2>&1
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
   "$DEAD_PID" "$GUARD_TOKEN" > "$LOCK.recovery"
@@ -232,7 +364,7 @@ CONCURRENT_PIDS=""
 for n in 1 2 3 4 5 6 7 8; do
   (
     while [ ! -e "$CONCURRENT_START" ]; do sleep 0.01; done
-    node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" > "$TMP/concurrent-orphan-$n.out" 2>&1
+    node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" > "$TMP/concurrent-orphan-$n.out" 2>&1
     printf '%s\n' "$?" > "$TMP/concurrent-orphan-$n.rc"
   ) &
   CONCURRENT_PIDS="$CONCURRENT_PIDS $!"
@@ -252,13 +384,13 @@ EVENTUAL_OK=0
 if [ "$CONCURRENT_OTHER" -eq 0 ] && [ "$CONCURRENT_WINNERS" -le 1 ] && \
    [ $((CONCURRENT_WINNERS + CONCURRENT_BUSY)) -eq 8 ]; then
   if [ "$CONCURRENT_WINNERS" -eq 1 ]; then
-    node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$WINNER_TOKEN" >/dev/null 2>&1 && EVENTUAL_OK=1
+    node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$WINNER_TOKEN" >/dev/null 2>&1 && EVENTUAL_OK=1
   else
     # A simultaneous election may conservatively return busy to every
     # participant. The installer's normal retry must then recover immediately
     # without a fatal rc=3 or stranded claim.
-    WINNER_TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>/dev/null)"; RC=$?
-    [ "$RC" -eq 0 ] && node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$WINNER_TOKEN" >/dev/null 2>&1 && EVENTUAL_OK=1
+    WINNER_TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>/dev/null)"; RC=$?
+    [ "$RC" -eq 0 ] && node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$WINNER_TOKEN" >/dev/null 2>&1 && EVENTUAL_OK=1
   fi
 fi
 if [ "$EVENTUAL_OK" -eq 1 ] && [ ! -e "$LOCK.recovery" ] && \
@@ -271,8 +403,8 @@ fi
 
 LIVE_CLAIM_TOKEN="$(printf 'e%.0s' {1..64})"
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z","targetFingerprint":"live-election"}\n' \
-  "$$" "$LIVE_CLAIM_TOKEN" > "$LOCK.recovery.reclaim.$LIVE_CLAIM_TOKEN"
-node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" >/dev/null 2>&1; RC=$?
+  "$LIVE_PID" "$LIVE_CLAIM_TOKEN" > "$LOCK.recovery.reclaim.$LIVE_CLAIM_TOKEN"
+node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" >/dev/null 2>&1; RC=$?
 if [ "$RC" -eq 75 ] && [ -f "$LOCK.recovery.reclaim.$LIVE_CLAIM_TOKEN" ]; then
   ok "live recovery claim is visible as busy to a third contender"
 else
@@ -282,20 +414,20 @@ rm -f "$LOCK.recovery.reclaim.$LIVE_CLAIM_TOKEN"
 
 # A contender paused after observing a stale guard must never move or delete a
 # replacement live guard. The unique election claim stays visible throughout.
-( : ) & DEAD_PID=$!; wait "$DEAD_PID"
+capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$DEAD_PID" >/dev/null 2>&1
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
   "$DEAD_PID" "$GUARD_TOKEN" > "$LOCK.recovery"
 rm -f "$TMP/barrier"/*
 NODE_ENV=test ZENSU_INSTALL_TEST_BARRIER_DIR="$TMP/barrier" \
-  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" > "$TMP/guard-race.out" 2>&1 & GUARD_RACE_PID=$!
+  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" > "$TMP/guard-race.out" 2>&1 & GUARD_RACE_PID=$!
 if wait_for "$TMP/barrier/recovery-claim-published.reached"; then
   CLAIM_COUNT="$(find "$TMP" -maxdepth 1 -type f -name '.install.lock.recovery.reclaim.*' | wc -l | tr -d ' ')"
   LIVE_GUARD_TOKEN="$(printf 'f%.0s' {1..64})"
   rm -f "$LOCK.recovery"
   printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
-    "$$" "$LIVE_GUARD_TOKEN" > "$LOCK.recovery"
-  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" >/dev/null 2>&1; THIRD_RC=$?
+    "$LIVE_PID" "$LIVE_GUARD_TOKEN" > "$LOCK.recovery"
+  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" >/dev/null 2>&1; THIRD_RC=$?
   : > "$TMP/barrier/recovery-claim-published.release"
   wait "$GUARD_RACE_PID"; GUARD_RACE_RC=$?
   LIVE_BYTES="$(cat "$LOCK.recovery" 2>/dev/null)"
@@ -318,31 +450,31 @@ rm -f "$LOCK" "$LOCK.recovery" "$LOCK.recovery.reclaim."*
 mkdir "$LOCK"
 printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z"}\n' \
   "$DEAD_PID" "$(printf 'a%.0s' {1..64})" > "$LOCK/owner.json"
-TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; RC=$?
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -f "$LOCK" ]; then
   ok "dead owner in the legacy directory-lock format is recovered"
-  node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$TOKEN" >/dev/null 2>&1
+  node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 else
   bad "dead legacy directory lock was not recovered"
 fi
 
 mkdir "$LOCK"
 node -e 'const fs=require("fs");const d=new Date(Date.now()-120000);fs.utimesSync(process.argv[1],d,d)' "$LOCK"
-TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" 2>&1)"; RC=$?
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ]; then
   ok "legacy ownerless lock is recovered after conservative grace period"
-  node "$HELPER" release-lock "$TMP" "$LOCK" "$$" "$TOKEN" >/dev/null 2>&1
+  node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 else
   bad "old ownerless lock was not recovered: $TOKEN"
 fi
 
-NODE_ENV=test ZENSU_INSTALL_TEST_FAIL_OWNER_WRITE=1 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$$" >/dev/null 2>&1; RC=$?
+NODE_ENV=test ZENSU_INSTALL_TEST_FAIL_OWNER_WRITE=1 node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" >/dev/null 2>&1; RC=$?
 [ "$RC" -ne 0 ] && [ ! -e "$LOCK" ] && ok "owner-write failure never publishes a partial lock" || bad "owner-write failure stranded a lock"
 
 DIRECT_LOCK="$TMP/.runtime-direct.lock"
-DIRECT_TOKEN="$(node "$RUNTIME_LOCK" acquire "$TMP" "$DIRECT_LOCK" "$$" 2>&1)"; RC=$?
+DIRECT_TOKEN="$(node "$RUNTIME_LOCK" acquire "$TMP" "$DIRECT_LOCK" "$LIVE_PID" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ -f "$DIRECT_LOCK" ] && \
-   node "$RUNTIME_LOCK" release "$TMP" "$DIRECT_LOCK" "$$" "$DIRECT_TOKEN" >/dev/null 2>&1; then
+   node "$RUNTIME_LOCK" release "$TMP" "$DIRECT_LOCK" "$LIVE_PID" "$DIRECT_TOKEN" >/dev/null 2>&1; then
   ok "installed runtime lock CLI shares the installer ownership protocol"
 else
   bad "runtime lock CLI could not acquire and release its direct lock"
@@ -354,7 +486,7 @@ node "$RUNTIME_LOCK" not-a-command >/dev/null 2>&1; RC=$?
 # that NTFS forbids in a real HOME directory.
 printf '{"hooks":{"x":[{"command":"bash \\\"__ZENSU_HOME__/hook.sh\\\""}]}}\n' > "$TMP/agent.json"
 HOSTILE='C:\path with space\" and $dollar `tick`'
-RENDERED="$(node "$HELPER" render-json "$TMP/agent.json" "$HOSTILE" 2>&1)"; RC=$?
+RENDERED="$(node "$HELPER" render-json "$HOSTILE" < "$TMP/agent.json" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && RENDERED="$RENDERED" HOSTILE="$HOSTILE" node -e '
   const j=JSON.parse(process.env.RENDERED); const c=j.hooks.x[0].command;
   if (!c.includes("\\\\") || !c.includes("\\\"") || !c.includes("\\$") || !c.includes("\\`")) process.exit(1);

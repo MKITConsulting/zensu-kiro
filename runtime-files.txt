@@ -2,6 +2,7 @@ VERSION
 PROTOCOL_VERSION
 hooks/kiro/kiro-shim.sh
 hooks/lib/resolve-plugin-root.sh
+hooks/lib/resolve-native-anchor.js
 hooks/lib/kiro-runtime-lock.js
 hooks/lib/resolve-session-id.js
 hooks/lib/zensu-cli-map.sh
