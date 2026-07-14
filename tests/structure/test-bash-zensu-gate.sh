@@ -7,6 +7,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -19,7 +20,8 @@ unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
 SID="b-cli-gate"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 
 payload() { # $1=command  $2=session(optional)
@@ -36,7 +38,7 @@ payload() { # $1=command  $2=session(optional)
 # gate <label> <command> <expected-rc> [session]
 gate() { # expected-rc: 2 = DENY, 0 = ALLOW
   local label="$1" cmd="$2" exp="$3" sid="${4:-$SID}" rc
-  payload "$cmd" "$sid" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-bash-zensu-gate.sh >/dev/null 2>&1
+  payload "$cmd" "$sid" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-bash-zensu-gate.sh >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq "$exp" ]; then
     ok "$label -> rc=$exp"

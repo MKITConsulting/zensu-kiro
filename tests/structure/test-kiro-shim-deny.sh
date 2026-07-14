@@ -7,6 +7,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -15,11 +16,15 @@ command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TDD_STATE_DIR="$TMP/state"
+export ZENSU_CONFIG="$TMP/config.json"
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
-mkdir -p "$TDD_STATE_DIR"
+mkdir -p "$TMP/home" "$TDD_STATE_DIR"
+export HOME="$TMP/home"
+printf '%s\n' '{"hooks":{"tddImplementation":true}}' > "$ZENSU_CONFIG"
 SID="s04-shim-deny"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 
 mk_kiro_write() { # $1=path
   printf '{"tool_name":"fs_write","session_id":"%s","cwd":"%s","tool_input":{"command":"create","path":"%s","file_text":"x"}}' "$SID" "$TMP" "$1"
@@ -32,7 +37,7 @@ ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --phase RED_FAIL --step s1 --session "$SID
 
 # 1) deny -> exit 2, reason on stderr (plain text, not JSON), stdout empty
 OUT="$TMP/out"; ERR="$TMP/err"
-printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 2 ] && ok "deny exit code 2" || bad "deny exit code: got $RC, expected 2"
 grep -q "TDD-Phase-Gate" "$ERR" && ok "deny reason on stderr" || bad "stderr lacks deny reason: $(cat "$ERR")"
@@ -40,38 +45,46 @@ grep -q "permissionDecision" "$ERR" && bad "stderr still contains raw JSON schem
 [ -s "$OUT" ] && bad "stdout not empty on deny: $(cat "$OUT")" || ok "stdout empty on deny"
 
 # 2) allowed (test path) -> exit 0, silent
-printf '%s' "$(mk_kiro_write src/app.test.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
+printf '%s' "$(mk_kiro_write src/app.test.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 0 ] && ok "allow exit code 0" || bad "allow exit code: got $RC, expected 0"
 [ -s "$ERR" ] && bad "stderr not empty on allow: $(cat "$ERR")" || ok "stderr empty on allow"
 
 # 3) ZENSU_TDD_GATE=off bypass -> exit 0
-printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT ZENSU_TDD_GATE=off bash "$SHIM" pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT ZENSU_TDD_GATE=off bash "$SHIM" 1 pre-edit-tdd-reminder.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 0 ] && ok "gate-off bypass exit 0" || bad "gate-off bypass: got $RC, expected 0"
 
 # 4) unknown wrapped script -> fail-open exit 0 (never break the host session)
-printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" no-such-hook.sh >"$OUT" 2>"$ERR"
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 no-such-hook.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 0 ] && ok "unknown script fail-open exit 0" || bad "unknown script: got $RC, expected 0"
 
 # 5) raw branch: a BROKEN wrapped script must fail OPEN (exit 0), never turn
 #    its own crash rc into an accidental preToolUse deny (exit 2 is reserved
 #    for the explicit deny classification) — and its stderr must pass through.
-#    The stub lives in a SANDBOX COPY of the shim tree (the shim self-resolves
-#    its root from its own path), never in the repo working tree.
-SBX="$TMP/shimbox"
-mkdir -p "$SBX/hooks/kiro" "$SBX/hooks/lib"
-cp "$ROOT/hooks/kiro/kiro-shim.sh" "$SBX/hooks/kiro/"
-STUB="$SBX/hooks/zz-f05-broken-stub.sh"
+#    The stub lives only in the fully installed test runtime. Its exact bytes
+#    are recorded in that fixture manifest so the real resolver still runs.
+STUB="$ZENSU_KIRO_FIXTURE_ROOT/hooks/zz-f05-broken-stub.sh"
+MANIFEST="$ZENSU_KIRO_FIXTURE_ROOT/manifest.json"
+record_stub() {
+  MANIFEST="$MANIFEST" STUB="$STUB" node - <<'NODE'
+const fs=require("fs"), crypto=require("crypto");
+const manifest=JSON.parse(fs.readFileSync(process.env.MANIFEST,"utf8"));
+manifest.files[process.env.STUB]=crypto.createHash("sha256").update(fs.readFileSync(process.env.STUB)).digest("hex");
+fs.writeFileSync(process.env.MANIFEST,JSON.stringify(manifest,null,2)+"\n");
+NODE
+}
 printf '#!/bin/bash\necho "diagnostic noise" >&2\nexit 2\n' > "$STUB"
-chmod +x "$STUB" "$SBX/hooks/kiro/kiro-shim.sh"
-printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SBX/hooks/kiro/kiro-shim.sh" zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
+chmod +x "$STUB"
+record_stub
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 0 ] && ok "broken wrapped script fails open (rc 0, not accidental deny)" || bad "broken script rc=$RC (accidental deny!)"
 grep -q "diagnostic noise" "$ERR" && ok "raw branch passes stderr through" || bad "raw branch swallowed stderr"
 printf '#!/bin/bash\nif [ broken-syntax\n' > "$STUB"
-printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SBX/hooks/kiro/kiro-shim.sh" zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
+record_stub
+printf '%s' "$(mk_kiro_write src/app.js)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 zz-f05-broken-stub.sh >"$OUT" 2>"$ERR"
 RC=$?
 [ "$RC" -eq 0 ] && ok "syntax-error wrapped script fails open (rc 0)" || bad "syntax-error script rc=$RC (accidental deny!)"
 

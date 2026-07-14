@@ -28,12 +28,12 @@ CHECK="$(ZJSON="$Z" ROOT="$ROOT" node -e '
   out.push("events " + events.every(e => Array.isArray(hooks[e]) && hooks[e].length > 0));
   const all = [].concat(...events.map(e => hooks[e] || []));
   // EVERY hook command must route through the shim (substituted form):
-  // bash /tmp/zensu-home/hooks/kiro/kiro-shim.sh <script>.sh
+  // bash "/tmp/zensu-home/hooks/kiro/kiro-shim.sh" 1 <script>.sh
   out.push("shimmed " + (all.length > 0 && all.every(h =>
     typeof h.command === "string" &&
-    /^bash \/tmp\/zensu-home\/hooks\/kiro\/kiro-shim\.sh [a-z0-9-]+\.sh$/.test(h.command)
+    /^bash "\/tmp\/zensu-home\/hooks\/kiro\/kiro-shim\.sh" 1 [a-z0-9-]+\.sh$/.test(h.command)
   )));
-  const scripts = all.map(h => ((h.command || "").match(/kiro-shim\.sh ([a-z0-9-]+\.sh)/) || [])[1]).filter(Boolean);
+  const scripts = all.map(h => ((h.command || "").match(/kiro-shim\.sh" 1 ([a-z0-9-]+\.sh)/) || [])[1]).filter(Boolean);
   out.push("scripts " + JSON.stringify([...new Set(scripts)]));
   out.push("scripts_count " + new Set(scripts).size);
   const pre = (hooks.preToolUse || []).map(h => h.matcher || "");

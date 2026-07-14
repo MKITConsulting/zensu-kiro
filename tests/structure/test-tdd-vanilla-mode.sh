@@ -437,7 +437,7 @@ node -e 'const c=require(process.argv[1]);process.exit(c.hooks&&c.hooks.tddImple
   && ! grep -qF "steps 1-4 + 7-10" "$SKILL_TDD"; } \
   && check "H3 vanilla deltas name the audits (no bare step-number coupling) + carry the precondition check" PASS \
   || check "H3 SKILL.md name-based audit refs" FAIL
-{ grep -qF "zensu-log.sh --mode" "$PLUGIN_DIR/skills/zensu-self-review/SKILL.md" \
+{ grep -qF 'resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --mode' "$PLUGIN_DIR/skills/zensu-self-review/SKILL.md" \
   && grep -qF "apply each" "$PLUGIN_DIR/skills/zensu-self-review/SKILL.md"; } \
   && check "H4 self-review carries the vanilla fix-round clause (zensu-log.sh --mode + apply-directly)" PASS || check "H4 self-review --mode clause" FAIL
 grep -qF "tddImplementation" "$PLUGIN_DIR/README.md" \

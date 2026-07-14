@@ -5,27 +5,27 @@ inclusion: manual
 # Zensu TDD protocol cheat sheet
 
 Strict RED→IMPL→GREEN, enforced by the preToolUse phase-gate while a TDD
-session is active (Kiro CLI, `zensu` agent). `PLUGIN_ROOT` = contents of
-`~/.zensu/plugin-root` (normally `~/.kiro/zensu`).
+session is active (Kiro CLI, `zensu` agent). Every independently executed
+command resolves protocol `1` and consumes the validated root atomically.
 
 ## Session lifecycle
 
 ```bash
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --tdd-begin      # arm gate + witness
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --tdd-complete   # implementation done -> review chain required
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --chain-done     # chain terminus (owned by /zensu-self-review)
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-begin      # arm gate + witness
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-complete   # implementation done -> review chain required
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --chain-done     # chain terminus (owned by /zensu-self-review)
 ```
 
 ## Phase markers (before every edit)
 
 ```bash
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_WRITE  --step <id>
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_RUN    --step <id>
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase RED_FAIL   --step <id> --reason "..."
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase IMPL       --step <id>   # requires RED_FAIL for <id>
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase GREEN_RUN  --step <id>
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase GREEN_PASS --step <id>
-bash $PLUGIN_ROOT/hooks/lib/zensu-log.sh --phase REFACTOR   --step <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE  --step <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_RUN    --step <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL   --step <id> --reason "..."
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase IMPL       --step <id>   # requires RED_FAIL for <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_RUN  --step <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_PASS --step <id>
+PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase REFACTOR   --step <id>
 ```
 
 `--step <id>` is REQUIRED on every marker: a marker without it records step

@@ -35,7 +35,7 @@ tests:
 
   - description: "D2 gate-deny UX (R6) — premature prod edit is blocked"
     vars:
-      q: "Run exactly this shell command first: bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --phase RED_WRITE --step s1 && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --phase RED_FAIL --step s1 --reason seeded. Then try to use the write tool to add a multiply function to src/calc.js. Whatever happens, report the tool result verbatim and stop. Do not retry, do not work around it."
+      q: "Run exactly this shell command first: PLUGIN_ROOT=$(bash \"$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh\" 1) && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\" --tdd-begin && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\" --phase RED_WRITE --step s1 && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\" --phase RED_FAIL --step s1 --reason seeded. Then try to use the write tool to add a multiply function to src/calc.js. Whatever happens, report the tool result verbatim and stop. Do not retry, do not work around it."
       scenario: d2-gate-deny
       fixture: toy-app
       file: src/calc.js
@@ -47,7 +47,7 @@ tests:
 
   - description: "D3 stop-block (R7) — enforcer fires and blocks on an open chain (headless does not re-prompt on the block; the loop is interactive-session behavior)"
     vars:
-      q: "Run exactly this shell command: bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-begin && bash ~/.kiro/zensu/hooks/lib/zensu-log.sh --tdd-complete. Then reply with exactly: DONE."
+      q: "Run exactly this shell command: PLUGIN_ROOT=$(bash \"$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh\" 1) && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\" --tdd-begin && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\" --tdd-complete. Then reply with exactly: DONE."
       scenario: d3-stop
       fixture: toy-app
     assert:

@@ -190,7 +190,7 @@ fi
 if printf '%s\n' "$CLASSES" | grep -qx "state"; then
   # Static literal on purpose (like the classification guard above): this deny
   # is a hardening control and must not depend on a node spawn succeeding.
-  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision": "deny","permissionDecisionReason":"TDD-Phase-Gate: edit-tool writes to the session-state files (.zensu/state/) are blocked while a session is active — state flags change only through bash \"$(cat ~/.zensu/plugin-root)\"/hooks/lib/zensu-log.sh (e.g. --tdd-begin, --tdd-reset, --phase)."}}'
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision": "deny","permissionDecisionReason":"TDD-Phase-Gate: edit-tool writes to the session-state files (.zensu/state/) are blocked while a session is active — state flags change only through the fixed Kiro runtime after validation with bash \"$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh\" (e.g. --tdd-begin, --tdd-reset, --phase)."}}'
   exit 0
 fi
 
@@ -256,25 +256,25 @@ fi
 # deny's whole value is the phase/step/file interpolation, node proved alive
 # twice in this run (extract + classification), and a node death here fails
 # open only the discipline rule — the hardening denies stay static.
-PAYLOAD_PHASE="$PHASE" PAYLOAD_STEP="$STEP" PAYLOAD_FILE="$DENIED_FILE" PAYLOAD_TOOL="$TOOL_NAME" PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT" node -e '
+PAYLOAD_PHASE="$PHASE" PAYLOAD_STEP="$STEP" PAYLOAD_FILE="$DENIED_FILE" PAYLOAD_TOOL="$TOOL_NAME" node -e '
   const phase = process.env.PAYLOAD_PHASE || "UNINITIALIZED";
   const step  = process.env.PAYLOAD_STEP || "(none)";
   const file  = process.env.PAYLOAD_FILE || "(unknown)";
   const tool  = process.env.PAYLOAD_TOOL || "apply_patch";
-  const root  = process.env.PLUGIN_ROOT || "";
+  const logCommand = "PLUGIN_ROOT=\"$(bash \"$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh\" 1)\" && bash \"$PLUGIN_ROOT/hooks/lib/zensu-log.sh\"";
   const header =
     "TDD-Phase-Gate: " + tool + " on " + file + " blocked.\n" +
     "Current phase: " + phase + ", step: " + step + ".\n" +
     "Expected: RED_WRITE | REFACTOR | (IMPL after RED_FAIL for step " + step + ") | (GREEN_PASS only on test paths).\n";
   const reason = header +
     "Action:\n" +
-    "  1. New test file: bash " + root + "/hooks/lib/zensu-log.sh --phase RED_WRITE --step <id>\n" +
+    "  1. New test file: " + logCommand + " --phase RED_WRITE --step <id>\n" +
     "  2. IMPL: first run the test, set RED_FAIL:\n" +
-    "     bash " + root + "/hooks/lib/zensu-log.sh --phase RED_RUN --step <id>\n" +
+    "     " + logCommand + " --phase RED_RUN --step <id>\n" +
     "     (run the test command)\n" +
-    "     bash " + root + "/hooks/lib/zensu-log.sh --phase RED_FAIL --step <id> --reason \"...\"\n" +
-    "     bash " + root + "/hooks/lib/zensu-log.sh --phase IMPL --step <id>\n" +
-    "  3. Refactor: bash " + root + "/hooks/lib/zensu-log.sh --phase REFACTOR --step <id>\n" +
+    "     " + logCommand + " --phase RED_FAIL --step <id> --reason \"...\"\n" +
+    "     " + logCommand + " --phase IMPL --step <id>\n" +
+    "  3. Refactor: " + logCommand + " --phase REFACTOR --step <id>\n" +
     "  4. Legitimate non-TDD edit: set ZENSU_TDD_GATE=off";
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {

@@ -10,22 +10,24 @@ Execute a feature specification with strict Red/Green Test-Driven Development **
 ## Mandatory command protocol (read this FIRST, follow on every step)
 
 The phase-gate and the witness only see these shell commands — prose compliance
-does not count. `{PLUGIN_ROOT}` is resolved in Phase 0 (`cat ~/.zensu/plugin-root`).
+does not count. Every helper command resolves and integrity-checks the fixed
+Kiro runtime in the same shell invocation; resolver output is never pasted
+into shell source.
 
-1. **Arm once, before any edit**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-begin`
+1. **Arm once, before any edit**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-begin`
    Until this runs the gate and witness are silent and the session records ZERO
    discipline evidence — running TDD without arming is a protocol violation even
    if every test is written first.
 2. **Declare every phase BEFORE acting — `--step <id>` is REQUIRED on every marker**:
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_WRITE --step <id>` → then write the test
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_RUN --step <id>` → then run it
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_FAIL --step <id> --reason "..."` → on the confirmed failure
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase IMPL --step <id>` → then edit production code
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_RUN --step <id>` → then run the test
-   - `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_PASS --step <id>` → on PASS
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step <id>` → then write the test
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_RUN --step <id>` → then run it
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step <id> --reason "..."` → on the confirmed failure
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase IMPL --step <id>` → then edit production code
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_RUN --step <id>` → then run the test
+   - `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_PASS --step <id>` → on PASS
    A marker without `--step` records step `(none)`, and the gate matches IMPL
    against a prior RED_FAIL **per step id** — a mismatch means your write is DENIED.
-3. **Finish**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-complete` arms the
+3. **Finish**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-complete` arms the
    review-chain Stop backstop. `--chain-done` is owned by `/zensu-self-review` —
    NEVER run it in the same turn as `--tdd-complete`.
 
@@ -121,11 +123,11 @@ Detection happens in Phase 1 step 6 (planning) and is audited in Phase 6 step 6b
 ## Principle 3: THREE-CHANNEL STATUS
 
 After completing each cycle phase (RED, IMPL, GREEN):
-1. **Log** — `printf '%s%s\n' "$(bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh timestamp $SESSION_EPOCH)" "..." >> {log_file}` — the helper resolves `~/.zensu/config.json`'s `logging.timestampStyle` to the inline prefix (`wall` default, `relative`, or `none`). Never inline `$()` for the timestamp itself; always call the helper. Throughout this skill `{log_file}` denotes the **cwd-independent** path `"${CLAUDE_PROJECT_DIR:-.}/.zensu/logs/{SESSION_TS}_tdd-{slug}.log"` — always anchored to `${CLAUDE_PROJECT_DIR:-.}` (never bare-relative) so every `>> {log_file}` append succeeds regardless of the current working directory.
+1. **Log** — `printf '%s%s\n' "$(PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" timestamp $SESSION_EPOCH)" "..." >> {log_file}` — the helper resolves `~/.zensu/config.json`'s `logging.timestampStyle` to the inline prefix (`wall` default, `relative`, or `none`). Never inline `$()` for the timestamp itself; always call the helper. Throughout this skill `{log_file}` denotes the **cwd-independent** path `"${CLAUDE_PROJECT_DIR:-.}/.zensu/logs/{SESSION_TS}_tdd-{slug}.log"` — always anchored to `${CLAUDE_PROJECT_DIR:-.}` (never bare-relative) so every `>> {log_file}` append succeeds regardless of the current working directory.
 2. **Tasks (MANDATORY)** — the user's live progress dashboard. todo-update: `in_progress` when starting a cycle phase, `completed` when done. Every step created in Phase 3 must reach `completed`. See the Per-Step Task Contract below.
 3. **Plan doc** — the Steps-table `Status` column is the single completion tracker (no GFM checkboxes in the plan); batch-update it at checkpoints and the final report only
 4. **Phase-marker** (FSM, enforced by PreToolUse gate) — before any the write tool, declare the current TDD phase via:
-   `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase <PHASE> --step <step_id> [--reason "..."]`
+   `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase <PHASE> --step <step_id> [--reason "..."]`
    Valid `<PHASE>` values: `RED_WRITE`, `RED_RUN`, `RED_FAIL`, `IMPL`, `GREEN_RUN`, `GREEN_PASS`, `REFACTOR`. The marker is written to `.zensu/state/tdd-phase-<session>.json`; the log-line format above is unchanged. The PreToolUse gate (`hooks/pre-edit-tdd-reminder.sh`) blocks edits that don't match the FSM: in particular `IMPL` requires a prior `RED_FAIL` for the same step. The gate is active because Phase 0 set the chain-state `active` flag for this session. Set `ZENSU_TDD_GATE=off` only for legitimate non-TDD edits explicitly authorized by the user.
 
 ### Per-Step Logging Contract (MANDATORY)
@@ -145,7 +147,7 @@ Tasks are not optional decoration — they are the only channel the user watches
 
 ## Vanilla Implementation Mode (config-gated deltas)
 
-Active when Phase 0's `--tdd-begin` echoes `mode: vanilla` (`hooks.tddImplementation` was `false` at begin time; frozen per session into the state file's `vanilla` flag). Re-query any time with `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --mode` (echoes `strict`/`vanilla`). Everything not listed below runs EXACTLY as written — especially Phase 5 and the whole Phase 6 audit (structured evidence, witness cross-check, build verification, coverage, the Precondition Drift Audit, review fan-out → consume-mode reviewer → self-review terminus) and the Stop-hook chain guarantee.
+Active when Phase 0's `--tdd-begin` echoes `mode: vanilla` (`hooks.tddImplementation` was `false` at begin time; frozen per session into the state file's `vanilla` flag). Re-query any time with `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --mode` (echoes `strict`/`vanilla`). Everything not listed below runs EXACTLY as written — especially Phase 5 and the whole Phase 6 audit (structured evidence, witness cross-check, build verification, coverage, the Precondition Drift Audit, review fan-out → consume-mode reviewer → self-review terminus) and the Stop-hook chain guarantee.
 
 - Principles 1-2 (RED→GREEN cycles, work types, cross-layer pairing) and the FSM phase markers do NOT apply; the preToolUse edit gate passes through (edit-tool writes to `.zensu/state/` stay denied); the shell witness still records every command.
 - Tests are at your discretion — write them where they add value; none is acceptable. The Phase 5/6 suites, build, coverage, and the review chain are the safety net.
@@ -159,9 +161,9 @@ Active when Phase 0's `--tdd-begin` echoes `mode: vanilla` (`hooks.tddImplementa
 
 ## Phase 0: Pre-flight
 
-1. **Resolve plugin root once.** Run `bash -c 'cat "$HOME/.zensu/plugin-root"'` via the shell tool and store its trimmed output (no trailing newline) as `{PLUGIN_ROOT}` for the entire session. Use `{PLUGIN_ROOT}` in ALL subsequent helper invocations: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh …`. If the command exits non-zero or the output is empty, abort with: `FATAL: plugin root unresolvable — run a fresh session to trigger SessionStart hook AND ensure hooks.pulseSession is not set to false in ~/.zensu/config.json`. **Never search the filesystem** for the helper; the SessionStart hook (`hooks/session-start-pulse.sh`) is the single source of truth for the plugin-root path.
+1. **Resolve and consume plugin root atomically.** Every helper invocation must use `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" …` in one shell command. The resolver validates the fixed Kiro runtime's VERSION, manifest, and complete executable hook closure before returning it. Never copy the returned path into generated shell source. If resolution exits non-zero or produces an empty value, abort with: `FATAL: Kiro plugin runtime invalid — reinstall the Zensu Kiro plugin and retry`. **Never search the filesystem** for the helper and never fall back to a shared pointer; `$HOME/.kiro/zensu` is Kiro's deliberate runtime location.
 2. Run `date +%Y-%m-%d-%H%M` → store as `{SESSION_TS}` for all filenames. Additionally capture `SESSION_EPOCH=$(date +%s)` and keep it for the entire TDD session — the log helper consumes it for `relative` timestamp style.
-3. **Activate the TDD session.** Run `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-begin`. This sets the per-session chain-state `active` flag, which turns on the PreToolUse phase-gate and the shell witness for THIS main-thread session (they were silent until now). Without this call, your edits are NOT gated and the witness records nothing — so do it before any test/production edit. The command echoes the session mode: `mode: strict` → run all phases as written; `mode: vanilla` → apply the deltas in ## Vanilla Implementation Mode. The mode is frozen per session into the state file — config flips mid-session change nothing.
+3. **Activate the TDD session.** Run `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-begin`. This sets the per-session chain-state `active` flag, which turns on the PreToolUse phase-gate and the shell witness for THIS main-thread session (they were silent until now). Without this call, your edits are NOT gated and the witness records nothing — so do it before any test/production edit. The command echoes the session mode: `mode: strict` → run all phases as written; `mode: vanilla` → apply the deltas in ## Vanilla Implementation Mode. The mode is frozen per session into the state file — config flips mid-session change nothing.
 4. **Confirm the task-tracking tool.** Kiro exposes the built-in `todo` tool in every session — use it for ALL step tracking: add one item per task, flip its status as you work. Never let a tooling hiccup become an excuse to skip tasks: they are the user's live dashboard (Principle 3, Per-Step Task Contract), not optional.
 5. Create the first task with `todo-add(subject: "TDD: Analyzing spec and creating plan", description: "Parse the feature spec and produce the TDD plan", activeForm: "Analyzing specification")`, then set it `in_progress` with `todo` (update item). **Contract:** `todo` (add item) requires BOTH `subject` and `description` (a one-liner is fine) and accepts an optional `activeForm`; it has NO `status` field (new tasks are always `pending`) and NO `blockedBy` — set status via `todo-update(status: ...)` and dependencies via `todo-update(addBlockedBy: [...])`.
 
@@ -264,7 +266,7 @@ MANDATORY — create BOTH files (plan + log are a pair).
 - Coverage report generated for changed files (threshold: {threshold})
 ```
 
-2. `mkdir -p "${CLAUDE_PROJECT_DIR:-.}/.zensu/logs" && printf '%s%s\n' "$(bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh timestamp $SESSION_EPOCH)" "TDD STARTED — {title} | steps: {N}" > {log_file}`
+2. `mkdir -p "${CLAUDE_PROJECT_DIR:-.}/.zensu/logs" && printf '%s%s\n' "$(PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" timestamp $SESSION_EPOCH)" "TDD STARTED — {title} | steps: {N}" > {log_file}`
 3. Tell user: `tail -f {log_file}`
 
 ---
@@ -287,30 +289,30 @@ Create each via `todo` (add item) with `subject` (the `{step_id} [test]` label),
 
 ## Phase 4: Execute TDD Cycles
 
-Log `EXECUTION STARTED` before the first step. All log-append commands in this phase use the helper-prefix pattern from Principle 3: `printf '%s%s\n' "$(bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh timestamp $SESSION_EPOCH)" "<message>" >> {log_file}`. Do not inline `[$(date +%H:%M:%S)]` — the user-configured `logging.timestampStyle` may suppress or reformat the prefix.
+Log `EXECUTION STARTED` before the first step. All log-append commands in this phase use the helper-prefix pattern from Principle 3: `printf '%s%s\n' "$(PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" timestamp $SESSION_EPOCH)" "<message>" >> {log_file}`. Do not inline `[$(date +%H:%M:%S)]` — the user-configured `logging.timestampStyle` may suppress or reformat the prefix.
 
 ### Feature Cycle (per step)
 
 **Self-check**: Previous step done? RED test defined? **Precondition check**: does this step's IMPL plan reference any tool/secret/fixture from the Phase 2 `## Preconditions` table that is marked `missing` with decision `skip`? If yes — mark the step `[!]` in the plan, log `{step_id} BLOCKED — precondition {name} missing`, todo-update `cancelled` for all three sub-tasks, and proceed to the next step. Do NOT substitute, do NOT write a partial test, do NOT commit a placeholder.
 
 **A) RED** — Write the test file. The test MUST assert actual behavior (return values, state changes, side effects), not just function existence. Run it with the test command. Verify it FAILS.
-  - **Phase marker (before writing the test)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_WRITE --step {step_id}`
+  - **Phase marker (before writing the test)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step {step_id}`
   - Write the test file.
-  - **Phase marker (before running the test)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_RUN --step {step_id}`
+  - **Phase marker (before running the test)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_RUN --step {step_id}`
   - Run the test.
   - **Verify the failure reason**: Assertion mismatch or missing symbol = CORRECT RED. Syntax error, typo, missing import, wrong file path = WRONG RED → fix the test itself, don't proceed to IMPL.
-  - **Phase marker (on confirmed failure)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase RED_FAIL --step {step_id} --reason "{reason}"`
+  - **Phase marker (on confirmed failure)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step {step_id} --reason "{reason}"`
   - Log: `{step} RED {test} — FAIL: {assertion or missing-symbol message}`. todo-update [test] completed.
   - If test PASSES: delete it, rewrite to test something that requires the implementation. Log `REJECTED — test GREEN on creation`.
 
 **B) IMPL** — Write the MINIMUM implementation code. Real, complete code for the test to pass — no stubs, no skeletons, no premature generalization. Do NOT run tests yet. Do NOT refactor unrelated code.
-  - **Phase marker (before editing production files)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase IMPL --step {step_id}` — the PreToolUse gate verifies that step `{step_id}` is in `RED_FAIL` in history; a missing or mismatched marker blocks the Edit/Write call.
+  - **Phase marker (before editing production files)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase IMPL --step {step_id}` — the PreToolUse gate verifies that step `{step_id}` is in `RED_FAIL` in history; a missing or mismatched marker blocks the Edit/Write call.
   - Log: `{step} IMPL completed — files: {list}`. todo-update [impl] completed.
 
 **C) GREEN** — Run the TARGET test (single file/name, not the full suite). Verify it PASSES.
-  - **Phase marker (before running the test)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_RUN --step {step_id}`
+  - **Phase marker (before running the test)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_RUN --step {step_id}`
   - Run the test.
-  - **Phase marker (on PASS)**: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase GREEN_PASS --step {step_id}`
+  - **Phase marker (on PASS)**: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase GREEN_PASS --step {step_id}`
   - If PASS: Log `{step} GREEN — PASS ({N} attempts)`. todo-update [verify] completed. Next step.
   - If FAIL: Log `RETRY({N}/3)`. Fix implementation (re-emit `--phase IMPL` per RETRY), back to C. Max 3 attempts → escalate to user.
   - Full suite runs only at Phase 5 checkpoints (not per step) — avoids 20× overhead on large codebases.
@@ -318,7 +320,7 @@ Log `EXECUTION STARTED` before the first step. All log-append commands in this p
 ### Refactoring Cycle
 
 **R1)** Run existing tests for affected code. Verify ALL PASS. If coverage insufficient, write a behavior-preserving test first.
-**R2)** Phase marker: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --phase REFACTOR --step {step_id}`. Refactor the code. Do NOT change behavior.
+**R2)** Phase marker: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --phase REFACTOR --step {step_id}`. Refactor the code. Do NOT change behavior.
 **R3)** Run same tests. Verify ALL still PASS.
 Log: `{step} RF — tests GREEN before+after`. Mark `[RF]`.
 
@@ -414,7 +416,7 @@ The `cmd="..."` field MUST be the literal command string that was sent to the sh
 8. Log: `TDD COMPLETE — {N}/{M} GREEN | Integration: {N} WIRED | Build: {✓ passed | – n/a | – skipped} | Coverage: {N}/{M} files >= {threshold}` (omit Coverage segment if SKIPPED).
 9. Output summary, in this order: (a) `## TL;DR` — exactly ONE sentence following the template `{component} {symptom} because {root_cause} — fixed via {mechanism}[, {N} TDD round(s)], {pass}/{total} tests green.` Cover root cause + fix mechanism + test verdict; no fluff, no hedging. Then (b) results, files modified, test counts, verification status, **Build status from step 2**, **Coverage table from step 3e**, **Test Evidence section** (every CHECKPOINT/AUDIT `cmd="..."` claim with its witness cross-check verdict — `verified` when matched in witness log, `EVIDENCE GAP` when missing, `EVIDENCE CONTRADICTION` when the witness tail contradicts a claimed pass, `via=tool_name` when declared non-Bash escape), plan path.
 10. **Close implementation and trigger the review chain.** This replaces the old subagent auto-review hook — the chain is now driven from this main thread. Execute these steps STRICTLY ONE AT A TIME (single tool call per step, wait for each result), never as a parallel batch and never bundled with the Phase 6 audit writes above:
-    1. Mark implementation complete: `bash {PLUGIN_ROOT}/hooks/lib/zensu-log.sh --tdd-complete`. This arms the Stop-hook backstop (`stop-chain-enforcer.sh`): you will NOT be allowed to end your turn until the review chain terminates.
+    1. Mark implementation complete: `PLUGIN_ROOT="$(bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1)" && bash "$PLUGIN_ROOT/hooks/lib/zensu-log.sh" --tdd-complete`. This arms the Stop-hook backstop (`stop-chain-enforcer.sh`): you will NOT be allowed to end your turn until the review chain terminates.
     2. Enumerate changed files: `git diff --name-only HEAD`.
     3. **Review fan-out (read-only, parallel).** Spawn FIVE `zensu-review-aspect` agents in ONE parallel batch (the single sanctioned parallel batch noted in the main-thread model above) — one per perspective: `conventions`, `bugs`, `architecture`, `tests`, `security`. Give each the same one-paragraph implementation summary + the changed-file list from step 2, and name its perspective in the prompt. They are strictly read-only and run NO build/test commands — the suite and build already ran in the Phase 6 audit above, so the aspects must not re-run them.
     4. **Merge in-thread.** Collect the five `## Aspect:` findings lists, deduplicate (same `file:line` raised by multiple perspectives → keep the highest confidence), and sort CRITICAL → IMPORTANT → SUGGESTION → by file path. This is the synthesis the standalone reviewer used to perform in its own Phase 5; you now do it here.

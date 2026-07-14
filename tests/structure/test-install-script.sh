@@ -4,7 +4,7 @@
 #   fresh install   -> runtime home ~/.kiro/zensu (hooks, prompts, VERSION,
 #                      manifest.json {version, files} with sha256 + absolute
 #                      destinations), skills, agents (rendered: zero
-#                      __ZENSU_HOME__ leftovers), ~/.zensu/plugin-root + config
+#                      __ZENSU_HOME__ leftovers), fixed-runtime validation + config
 #   idempotency     -> second run changes nothing (portable mtime via node)
 #   user edits      -> a user-modified installed file is SKIPped on EVERY
 #                      subsequent upgrade (guard must survive the manifest
@@ -27,6 +27,7 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 mt() { node -e 'console.log(require("fs").statSync(process.argv[1]).mtimeMs)' "$1" 2>/dev/null; }
+hash_file() { node -e 'const fs=require("fs"),c=require("crypto");process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
@@ -43,6 +44,11 @@ bash "$INSTALL" --scope user --no-default --dry-run >/dev/null 2>&1
 [ -d "$HOME/.kiro/agents" ] && bad "dry-run created agents" || ok "dry-run: no agents"
 [ -d "$HOME/.zensu" ] && bad "dry-run created ~/.zensu" || ok "dry-run: no ~/.zensu"
 
+# A locator created by an older plugin generation is foreign state. The Kiro
+# installer must neither consume nor rewrite it.
+mkdir -p "$HOME/.zensu"
+printf '%s\n' '/tmp/legacy-pointer-must-survive' > "$HOME/.zensu/plugin-root"
+
 # 2) fresh install
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "install exits 0" || { bad "install rc=$RC"; printf '%s\n' "$OUT" | tail -5; }
@@ -57,7 +63,8 @@ OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ -f "$HOME/.kiro/zensu/hooks/plan-approved-delegate.sh" ] && bad "unwired plan-approved hook installed to runtime" || ok "unwired plan-approved hook excluded from runtime"
 grep -r "__ZENSU_HOME__" "$HOME/.kiro/agents" >/dev/null 2>&1 && bad "__ZENSU_HOME__ leftovers in agents" || ok "placeholder fully rendered"
 grep -q "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" "$HOME/.kiro/agents/zensu.json" && ok "hook commands point at runtime home" || bad "hook command paths wrong"
-[ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = "$HOME/.kiro/zensu" ] && ok "plugin-root written" || bad "plugin-root wrong"
+[ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = '/tmp/legacy-pointer-must-survive' ] && ok "legacy locator preserved and ignored" || bad "legacy locator was rewritten"
+[ "$(HOME="$HOME" bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 2>/dev/null)" = "$HOME/.kiro/zensu" ] && ok "fixed runtime validates and resolves" || bad "fixed runtime validation failed"
 [ -f "$HOME/.zensu/config.json" ] && ok "config seeded" || bad "config not seeded"
 
 # 2b) CLI re-home: no hosted MCP wiring is left behind by a fresh install
@@ -94,8 +101,10 @@ S3="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
 [ "$S1" = "$S3" ] && ok "user-modified file preserved across TWO upgrades" || bad "guard lost after manifest rewrite (2nd upgrade overwrote)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (2nd upgrade)" || bad "no SKIP warning (2nd upgrade)"
 
-# 5) tampered manifest entries outside the allowed roots are refused
+# 5) tampered manifest entries outside the allowed roots fail the whole
+#    operation closed. --force must never override path-safety failures.
 SENTINEL="$HOME/precious.txt"; printf 'keep me\n' > "$SENTINEL"
+cp "$HOME/.kiro/zensu/manifest.json" "$TMP/manifest.before-path-tamper.json"
 node -e '
   const fs=require("fs"); const p=process.argv[1];
   const m=JSON.parse(fs.readFileSync(p,"utf8"));
@@ -103,8 +112,12 @@ node -e '
   m.files["../outside.txt"] = "0".repeat(64);
   fs.writeFileSync(p, JSON.stringify(m,null,2));
 ' "$HOME/.kiro/zensu/manifest.json" "$SENTINEL"
-bash "$INSTALL" --uninstall --force >/dev/null 2>&1
+bash "$INSTALL" --uninstall --force >/dev/null 2>&1; RC=$?
+[ "$RC" -ne 0 ] && ok "unsafe manifest blocks uninstall even with --force" || bad "--force overrode manifest path safety"
 [ -f "$SENTINEL" ] && ok "uninstall refuses paths outside allowed roots" || bad "uninstall deleted out-of-root file"
+[ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && ok "failed-closed uninstall leaves runtime intact" || bad "partial uninstall occurred before unsafe entry was rejected"
+cp "$TMP/manifest.before-path-tamper.json" "$HOME/.kiro/zensu/manifest.json"
+bash "$INSTALL" --uninstall --force >/dev/null 2>&1
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && bad "runtime survived uninstall" || ok "runtime removed"
 [ -f "$HOME/.kiro/agents/zensu.json" ] && bad "agent survived uninstall" || ok "agents removed"
 [ -f "$HOME/.zensu/config.json" ] && ok "user config untouched by uninstall" || bad "uninstall deleted user config"
@@ -161,6 +174,7 @@ bash "$INSTALL" --scope user --no-default >/dev/null 2>&1   # re-establish user 
 #     entry pointing at a user-scope hook with a dummy hash (--force ignores
 #     hashes, so only path confinement protects the file) and force-uninstall
 SENT2="$HOME/.kiro/zensu/hooks/pre-bash-zensu-gate.sh"
+cp "$WS/.kiro/zensu-manifest.json" "$TMP/workspace-manifest.before-tamper.json"
 node -e '
   const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   m.files[process.argv[2]] = "0".repeat(64);
@@ -169,8 +183,12 @@ node -e '
 # Match the path SUFFIX, not "$SENT2" verbatim: MSYS converts argv paths for
 # native node, so on Windows the planted key is C:/... while $SENT2 is /c/...
 grep -q "hooks/pre-bash-zensu-gate.sh" "$WS/.kiro/zensu-manifest.json" || bad "8b tamper failed to plant entry"
-( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
+( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 ); RC=$?
+[ "$RC" -ne 0 ] && ok "unsafe workspace manifest fails closed" || bad "workspace --force overrode path safety"
 [ -f "$SENT2" ] && ok "workspace uninstall cannot delete user-scope files (scope-confined)" || bad "workspace manifest reached into \$HOME/.kiro (deleted gate hook!)"
+[ -f "$WS/.kiro/agents/zensu.json" ] && ok "failed-closed workspace uninstall is atomic" || bad "workspace uninstall partially removed files before rejecting manifest"
+cp "$TMP/workspace-manifest.before-tamper.json" "$WS/.kiro/zensu-manifest.json"
+( cd "$WS" && bash "$INSTALL" --uninstall --scope workspace --force >/dev/null 2>&1 )
 [ -f "$WS/.kiro/agents/zensu.json" ] && bad "workspace uninstall left workspace agents" || ok "workspace uninstall removed workspace files"
 [ -f "$HOME/.kiro/agents/zensu.json" ] && ok "workspace uninstall left USER scope untouched" || bad "workspace uninstall deleted user-scope files"
 
@@ -184,6 +202,187 @@ node -e '
 grep -q ".kiro-evil/owned.txt" "$HOME/.kiro/zensu/manifest.json" || bad "8c tamper failed to plant entry"
 bash "$INSTALL" --uninstall --force >/dev/null 2>&1
 [ -f "$HOME/.kiro-evil/owned.txt" ] && ok "sibling-prefix path refused (.kiro-evil intact)" || bad "uninstall deleted under .kiro-evil"
+
+# 9) HOME is data, never code. The end-to-end fixture uses only NTFS-valid
+#    metacharacters; quote/backslash escaping is covered directly by the helper
+#    suite because those characters cannot both appear in a Windows path.
+EVIL_BASE="$TMP/hostile-home-case"; mkdir -p "$EVIL_BASE"
+EVIL_HOME="$EVIL_BASE/home \$dollar \$(touch PWNED_DOLLAR) \`touch PWNED_TICK\` quote' semi; amp&"
+mkdir -p "$EVIL_HOME"
+OUT="$(cd "$EVIL_BASE" && HOME="$EVIL_HOME" bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
+[ "$RC" -eq 0 ] && ok "hostile-but-valid HOME installs successfully" || bad "hostile HOME install rc=$RC: $OUT"
+EVIL_AGENT="$EVIL_HOME/.kiro/agents/zensu.json"
+if AGENT="$EVIL_AGENT" node -e 'JSON.parse(require("fs").readFileSync(process.env.AGENT,"utf8"))' 2>/dev/null; then
+  ok "rendered agent remains valid JSON for hostile HOME"
+else
+  bad "raw HOME interpolation corrupted rendered agent JSON"
+fi
+CMD="$(AGENT="$EVIL_AGENT" node -e '
+  const j=JSON.parse(require("fs").readFileSync(process.env.AGENT,"utf8"));
+  const hook=Object.values(j.hooks||{}).flat().find(x=>x&&typeof x.command==="string");
+  process.stdout.write(hook ? hook.command : "");
+' 2>/dev/null)"
+if [ -n "$CMD" ]; then
+  ( cd "$EVIL_BASE" && bash -c "$CMD" </dev/null >/dev/null 2>&1 ) || true
+fi
+[ ! -e "$EVIL_BASE/PWNED_DOLLAR" ] && [ ! -e "$EVIL_BASE/PWNED_TICK" ] && ok "rendered hook command treats HOME metacharacters literally" || bad "rendered hook command executed HOME payload"
+
+# Control characters cannot be represented safely across JSON/shell consumers.
+CONTROL_HOME="$TMP/"$'control\nhome'; mkdir -p "$CONTROL_HOME"
+CONTROL_OUT="$(HOME="$CONTROL_HOME" bash "$INSTALL" --scope user --no-default --dry-run 2>&1)"; RC=$?
+if [ "$RC" -ne 0 ] && [ ! -e "$CONTROL_HOME/.kiro" ] && printf '%s' "$CONTROL_OUT" | grep -qi 'control characters'; then
+  ok "control-character HOME is rejected explicitly before writes"
+else
+  bad "control-character HOME rejection was missing or ambiguous"
+fi
+
+# 10) Existing symlink components must never redirect an install outside the
+#     intended root.
+SYM_HOME="$TMP/symlink-install-home"; SYM_OUT="$TMP/symlink-install-outside"
+mkdir -p "$SYM_HOME" "$SYM_OUT"
+if ln -s "$SYM_OUT" "$SYM_HOME/.kiro" 2>/dev/null; then
+  HOME="$SYM_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && ok "install rejects a symlinked .kiro root" || bad "install followed symlinked .kiro root"
+  [ ! -e "$SYM_OUT/zensu" ] && ok "symlinked install wrote nothing outside HOME" || bad "install escaped through .kiro symlink"
+else
+  ok "skipped: filesystem does not permit symlink fixture"
+  ok "skipped: filesystem does not permit symlink fixture"
+fi
+
+# The same rule applies to uninstall: a post-install directory swap must not
+# let a valid recorded hash authorize deletion through a symlink.
+UN_HOME="$TMP/symlink-uninstall-home"; UN_OUT="$TMP/symlink-uninstall-outside"
+mkdir -p "$UN_HOME" "$UN_OUT"
+HOME="$UN_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+if mv "$UN_HOME/.kiro/agents" "$UN_HOME/.kiro/agents-real" 2>/dev/null && ln -s "$UN_OUT" "$UN_HOME/.kiro/agents" 2>/dev/null; then
+  cp "$UN_HOME/.kiro/agents-real/zensu.json" "$UN_OUT/zensu.json"
+  HOME="$UN_HOME" bash "$INSTALL" --scope user --uninstall --force >/dev/null 2>&1; RC=$?
+  [ "$RC" -ne 0 ] && ok "uninstall rejects a symlinked manifest path" || bad "uninstall followed a symlinked manifest path"
+  [ -f "$UN_OUT/zensu.json" ] && ok "symlinked uninstall leaves outside file intact" || bad "uninstall deleted through symlink"
+else
+  ok "skipped: filesystem does not permit uninstall symlink fixture"
+  ok "skipped: filesystem does not permit uninstall symlink fixture"
+fi
+
+# 11) Uninstall remains available after a newer runtime was installed. Version
+#     drift is an install concern; schema and path safety still apply.
+NEW_HOME="$TMP/newer-uninstall-home"; mkdir -p "$NEW_HOME"
+HOME="$NEW_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+MANIFEST="$NEW_HOME/.kiro/zensu/manifest.json" node -e '
+  const fs=require("fs"), p=process.env.MANIFEST, m=JSON.parse(fs.readFileSync(p,"utf8"));
+  m.version="9.0.0"; fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");
+'
+printf '9.0.0\n' > "$NEW_HOME/.kiro/zensu/VERSION"
+HOME="$NEW_HOME" bash "$INSTALL" --scope user --uninstall >/dev/null 2>&1; RC=$?
+[ "$RC" -eq 0 ] && [ ! -e "$NEW_HOME/.kiro/zensu/manifest.json" ] && ok "uninstall ignores safe version drift" || bad "newer runtime could not be uninstalled"
+
+# SemVer prerelease identifiers use numeric precedence: beta.10 is newer than
+# beta.2 even though a lexical string comparison says otherwise.
+BETA_SRC="$TMP/source-beta"; cp -R "$ROOT" "$BETA_SRC"
+printf '1.0.0-beta.2\n' > "$BETA_SRC/VERSION"
+BETA_HOME="$TMP/beta-home"; mkdir -p "$BETA_HOME/.kiro/zensu"
+printf '1.0.0-beta.10\n' > "$BETA_HOME/.kiro/zensu/VERSION"
+printf '{"version":"1.0.0-beta.10","files":{}}\n' > "$BETA_HOME/.kiro/zensu/manifest.json"
+OUT="$(HOME="$BETA_HOME" bash "$BETA_SRC/install.sh" --scope user --no-default 2>&1)"; RC=$?
+if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -qi 'downgrade'; then
+  ok "SemVer guard treats beta.10 as newer than beta.2"
+else
+  bad "SemVer prerelease comparison is lexical or incomplete"
+fi
+
+# Valid SemVer may contain prerelease and build metadata simultaneously; the
+# installed resolver and installer must agree on this grammar.
+printf '1.0.0-beta.2+build.7\n' > "$BETA_SRC/VERSION"
+COMBO_HOME="$TMP/combo-home"; mkdir -p "$COMBO_HOME"
+HOME="$COMBO_HOME" bash "$BETA_SRC/install.sh" --scope user --no-default >/dev/null 2>&1; RC=$?
+if [ "$RC" -eq 0 ] && HOME="$COMBO_HOME" bash "$COMBO_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 >/dev/null 2>&1; then
+  ok "installer and resolver accept prerelease plus build SemVer"
+else
+  bad "resolver rejected valid prerelease plus build SemVer"
+fi
+
+# A normal upgrade must recognize its old manifest entry on native Windows
+# Node even though Git Bash may spell the same path as /c/... vs C:/....
+UPGRADE_SRC="$TMP/upgrade-source"; cp -R "$ROOT" "$UPGRADE_SRC"
+UPGRADE_HOME="$TMP/upgrade-home"; mkdir -p "$UPGRADE_HOME"
+HOME="$UPGRADE_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+printf '\nwindows canonical upgrade marker\n' >> "$UPGRADE_SRC/skills/zensu-help/SKILL.md"
+OUT="$(HOME="$UPGRADE_HOME" bash "$UPGRADE_SRC/install.sh" --scope user --no-default 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'windows canonical upgrade marker' "$UPGRADE_HOME/.kiro/skills/zensu-help/SKILL.md"; then
+  ok "upgrade matches canonical manifest paths across Git Bash/native Node"
+else
+  bad "upgrade treated its managed file as foreign: $OUT"
+fi
+
+# A noncritical write failure must abort before either manifest is replaced.
+FAULT_SRC="$TMP/fault-source"; cp -R "$ROOT" "$FAULT_SRC"
+FAULT_HOME="$TMP/fault-home"; mkdir -p "$FAULT_HOME"
+HOME="$FAULT_HOME" bash "$FAULT_SRC/install.sh" --scope user --no-default >/dev/null 2>&1
+FAULT_MANIFEST="$FAULT_HOME/.kiro/zensu/manifest.json"; BEFORE_MANIFEST="$(hash_file "$FAULT_MANIFEST")"
+printf '\nforced noncritical candidate change\n' >> "$FAULT_SRC/skills/zensu-help/SKILL.md"
+OUT="$(NODE_ENV=test ZENSU_INSTALL_TEST_FAIL_TARGET='/skills/zensu-help/SKILL.md' HOME="$FAULT_HOME" \
+  bash "$FAULT_SRC/install.sh" --scope user --no-default 2>&1)"; RC=$?
+AFTER_MANIFEST="$(hash_file "$FAULT_MANIFEST")"
+if [ "$RC" -ne 0 ] && [ "$BEFORE_MANIFEST" = "$AFTER_MANIFEST" ] && printf '%s' "$OUT" | grep -q 'manifests were not published'; then
+  ok "noncritical write failure leaves the prior manifest unpublished"
+else
+  bad "partial install published a manifest (rc=$RC)"
+fi
+
+# 12) A held HOME-wide lock deterministically blocks the installer. Releasing
+#     it lets the waiting process finish with a valid runtime.
+HELPER="$ROOT/scripts/install-support.js"
+LOCK_HOME="$TMP/concurrent-home"; mkdir -p "$LOCK_HOME"
+OWNER_PID="$$"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) OWNER_PID="$(ps -p "$$" -o winpid= | tr -d '[:space:]')" ;; esac
+LOCK_PATH="$LOCK_HOME/.zensu-kiro-install.lock"
+TOKEN="$(node "$HELPER" acquire-lock "$LOCK_HOME" "$LOCK_PATH" "$OWNER_PID" 2>/dev/null)"
+HOME="$LOCK_HOME" bash "$INSTALL" --scope user --no-default >"$TMP/install-held.log" 2>&1 & HELD_PID=$!
+sleep 0.25
+if kill -0 "$HELD_PID" 2>/dev/null && [ ! -e "$LOCK_HOME/.kiro/zensu/manifest.json" ]; then
+  ok "held HOME-wide lock blocks publication"
+else
+  bad "installer did not block behind the held lock"
+fi
+node "$HELPER" release-lock "$LOCK_HOME" "$LOCK_PATH" "$OWNER_PID" "$TOKEN" >/dev/null 2>&1
+wait "$HELD_PID"; RC=$?
+if [ "$RC" -eq 0 ] && HOME="$LOCK_HOME" bash "$LOCK_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 >/dev/null 2>&1; then
+  ok "waiting installer completes after lock release"
+else
+  bad "waiting installer failed after lock release"
+fi
+
+# Signal a process only after it proves lock ownership. It must exit 143,
+# release the lock, and perform no post-signal installation writes.
+SIGNAL_HOME="$TMP/signal-home"; SIGNAL_BARRIER="$TMP/signal-barrier"
+mkdir -p "$SIGNAL_HOME" "$SIGNAL_BARRIER"
+NODE_ENV=test ZENSU_INSTALL_TEST_AFTER_LOCK_DIR="$SIGNAL_BARRIER" HOME="$SIGNAL_HOME" \
+  bash "$INSTALL" --scope user --no-default >"$TMP/install-signal.log" 2>&1 & SIGNAL_PID=$!
+i=0; while [ ! -e "$SIGNAL_BARRIER/reached" ] && [ "$i" -lt 500 ]; do sleep 0.02; i=$((i+1)); done
+if [ -e "$SIGNAL_BARRIER/reached" ]; then
+  kill -TERM "$SIGNAL_PID"; wait "$SIGNAL_PID"; RC=$?
+  if [ "$RC" -eq 143 ] && [ ! -e "$SIGNAL_HOME/.zensu-kiro-install.lock" ] && [ ! -e "$SIGNAL_HOME/.kiro/zensu/manifest.json" ]; then
+    ok "SIGTERM exits immediately and releases the lock before writes"
+  else
+    bad "SIGTERM continued installation or stranded the lock (rc=$RC)"
+  fi
+else
+  bad "signal fixture never reached the post-lock barrier"
+  kill -KILL "$SIGNAL_PID" 2>/dev/null || true
+fi
+HOME="$SIGNAL_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
+[ "$?" -eq 0 ] && ok "subsequent install acquires the signal-released lock" || bad "signal-released lock was not reusable"
+
+# Two real contenders must also converge on one coherent publication.
+PAR_HOME="$TMP/parallel-home"; mkdir -p "$PAR_HOME"
+HOME="$PAR_HOME" bash "$INSTALL" --scope user --no-default >"$TMP/install-a.log" 2>&1 & PA=$!
+HOME="$PAR_HOME" bash "$INSTALL" --scope user --no-default >"$TMP/install-b.log" 2>&1 & PB=$!
+wait "$PA"; RCA=$?; wait "$PB"; RCB=$?
+if [ "$RCA" -eq 0 ] && [ "$RCB" -eq 0 ] && HOME="$PAR_HOME" bash "$PAR_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1 >/dev/null 2>&1; then
+  ok "parallel installs publish one coherent runtime"
+else
+  bad "parallel installs raced or left an invalid runtime (rc=$RCA/$RCB)"
+fi
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

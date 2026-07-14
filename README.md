@@ -48,8 +48,29 @@ kiro-cli chat --agent zensu
 
 `install.sh` flags: `--scope user|workspace` · `--dry-run` · `--force` ·
 `--set-default|--no-default` · `--uninstall`. It is idempotent (manifest with
-per-file sha256), never stomps user-modified files (SKIP + warn), and uninstalls
-only what it installed. Zensu data access goes through the `zensu` CLI you
+per-file sha256), preserves user-modified skills/agents (SKIP + warn), and
+uninstalls only what it installed. A modified runtime hook is also preserved,
+but deliberately leaves the complete runtime invalid until it is reviewed and
+repaired with `--force`. Installation is serialized per HOME; JSON rendering,
+path traversal, symlink components, and file/manifest publication are validated
+and fail closed before an operation can escape the intended `.kiro` root.
+Interrupted replacements are recovered from self-describing claim journals on
+the next run, and files removed from a newer runtime inventory are safely
+reconciled (modified obsolete files are preserved and require explicit review).
+A malformed prior manifest is never overwritten, even with `--force`, because
+its missing inventory provenance makes obsolete-hook reconciliation unsafe.
+A
+safe uninstall remains possible when the installed version is newer. The hook runtime has one deliberate Kiro-owned location,
+`$HOME/.kiro/zensu`, shared by user- and workspace-scoped installs. Before use,
+`hooks/lib/resolve-plugin-root.sh` verifies its `VERSION`, scope protocol,
+manifest, and complete declared runtime closure before every model or automatic
+hook dispatch. Automatic hooks hold the same HOME-wide lock through validation
+and execution, so an upgrade cannot mix runtime generations; security/TDD
+preToolUse hooks deny while validation is unavailable, while lifecycle hooks
+remain fail-open. Incompatible older scope-local skills fail closed until that
+scope is reinstalled; an older checkout cannot replace a newer installed runtime
+unless you review the situation and pass `--force`. Legacy shared root locators are
+ignored and left untouched. Zensu data access goes through the `zensu` CLI you
 installed in step 1 — the hosted MCP server is no longer wired into the plugin.
 
 ### Kiro IDE (Power)
@@ -231,7 +252,7 @@ markers.
 | Session identity | payloads carry **no `session_id`** (live-verified) — convergence via the project-scoped `.zensu/state/session-id-current.txt` written at `agentSpawn` (pinned by `test-session-resolution.sh`) | same |
 | Context-compaction nudge | wired but **inert** (Claude-transcript-shaped payload) | n/a |
 | Session banner/primer | **FULL ✓ live-verified** (`agentSpawn`; payload keys `hook_event_name`/`cwd`/`prompt`, fires on every spawn) | n/a |
-| Pulse session telemetry | **FULL ✓ live-verified (B6)** (plugin-root + `zensu pulse` CLI commands) | **FULL** |
+| Pulse session telemetry | **FULL ✓ live-verified** (`zensu pulse` CLI commands); B6 now verifies fixed-runtime VERSION/manifest/helper integrity | **FULL** |
 
 Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite (D1–D4, D6)
 5/5, behavior suite B1–B3+B6 green, and the [slow] B5 full-TDD live run green (RED_FAIL→IMPL→GREEN_PASS in the FSM state, 18 witness-recorded shell commands) — `tests/promptfoo/results/`. Re-run
@@ -252,6 +273,12 @@ shared schema with the Claude Code and Codex ports): `hooks.*` toggles
 `logging.timestampStyle` (`wall|relative|none`). Env escape hatches:
 `ZENSU_TDD_GATE=off`, `ZENSU_MCP_GATE=off`, `ZENSU_CHAIN=off`,
 `ZENSU_TEST_WITNESS=off`.
+
+Root-dependent skill commands resolve the fixed runtime with
+`bash "$HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh" 1`. If that command
+fails, rerun `bash install.sh --scope user --no-default` from the intended
+checkout (use `--force` only after reviewing a reported downgrade or modified
+runtime closure); do not recover from a shared home-directory pointer.
 
 `hooks.tddImplementation:false` switches `/zensu-tdd` to **vanilla
 implementation mode**: no RED→GREEN ceremony, no FSM phase markers, the

@@ -6,6 +6,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -17,14 +18,15 @@ export TDD_STATE_DIR="$TMP/state"
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 
 mk_prompt() { # $1=session $2=prompt text
   printf '{"prompt":"%s","session_id":"%s","cwd":"%s"}' "$2" "$1" "$TMP"
 }
 run_shim() { # $1=script $2=payload
-  printf '%s' "$2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" "$1" 2>/dev/null
+  printf '%s' "$2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 "$1" 2>/dev/null
 }
 
 # 1) tdd-reminder fires on an implementation prompt (no active TDD session)
@@ -40,7 +42,7 @@ OUT="$(run_shim user-prompt-tdd-reminder.sh "$(mk_prompt s06-active 'add a funct
 [ -z "$OUT" ] && ok "tdd-reminder silent during active TDD session" || bad "tdd-reminder fired during active session: '$OUT'"
 
 # 3) tdd-reminder is silent without a prompt field
-OUT="$(printf '{"session_id":"s06-noprompt","cwd":"%s"}' "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" user-prompt-tdd-reminder.sh 2>/dev/null)"
+OUT="$(printf '{"session_id":"s06-noprompt","cwd":"%s"}' "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 user-prompt-tdd-reminder.sh 2>/dev/null)"
 [ -z "$OUT" ] && ok "tdd-reminder silent without prompt field" || bad "tdd-reminder fired without prompt"
 
 # 4) intent-router fires on product-planning keywords, silent otherwise
@@ -51,7 +53,7 @@ OUT="$(run_shim user-prompt-intent-router.sh "$(mk_prompt s06-route 'what time i
 [ -z "$OUT" ] && ok "intent-router silent on unrelated prompt" || bad "intent-router fired on unrelated prompt"
 
 # 5) context-nudge (wired but inert on Kiro payloads) must stay silent, rc 0
-printf '%s' "$(mk_prompt s06-nudge 'anything')" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" user-prompt-context-nudge.sh >"$TMP/o" 2>"$TMP/e"
+printf '%s' "$(mk_prompt s06-nudge 'anything')" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 user-prompt-context-nudge.sh >"$TMP/o" 2>"$TMP/e"
 RC=$?
 [ "$RC" -eq 0 ] && ok "context-nudge exits 0 (fail-safe)" || bad "context-nudge rc $RC"
 [ -s "$TMP/o" ] && bad "context-nudge emitted noise on Kiro payload: $(head -c 120 "$TMP/o")" || ok "context-nudge stays silent (no stdout)"
