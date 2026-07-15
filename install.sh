@@ -486,12 +486,11 @@ fi
 # modified runtime hook intentionally leaves the runtime invalid until the user
 # reviews it and repairs explicitly with --force.
 if [ "$DRY" -ne 1 ]; then
-  VALIDATION_RESULT="$(HOME="$HOME" ZENSU_KIRO_LOCK_OWNER_PID="$LOCK_OWNER_PID" ZENSU_KIRO_LOCK_TOKEN="$LOCK_TOKEN" \
-    bash "$ZENSU_HOME/hooks/lib/resolve-plugin-root.sh" 1 2>&1)"; RC=$?
-  if [ "$RC" -eq 0 ]; then
+  if HOME="$HOME" ZENSU_KIRO_LOCK_OWNER_PID="$LOCK_OWNER_PID" ZENSU_KIRO_LOCK_TOKEN="$LOCK_TOKEN" \
+    bash "$ZENSU_HOME/hooks/lib/resolve-plugin-root.sh" 1 >/dev/null 2>&1; then
     say "VALIDATE $ZENSU_HOME (VERSION + protocol + manifest + complete runtime closure)"
   else
-    printf 'FATAL: installed Zensu Kiro runtime failed VERSION/manifest integrity validation: %.500s\n' "$VALIDATION_RESULT" >&2
+    echo "FATAL: installed Zensu Kiro runtime failed VERSION/manifest integrity validation" >&2
     exit 1
   fi
 fi
