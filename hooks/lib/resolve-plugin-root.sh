@@ -21,7 +21,7 @@ configure_windows_native_tools() {
       # argv conversion for script/executable paths.
       local raw_name
       if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW; do
           case ";${MSYS2_ENV_CONV_EXCL:-};" in
             *";$raw_name;"*) ;;
             *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;
@@ -116,7 +116,8 @@ const mappings = mappingSpecs.flatMap(([rawName, nativeName]) => {
   let stat;
   try { stat = fs.statSync(nativePath.value); } catch (_) { fail("native trusted anchor is missing"); }
   if (!stat.isDirectory()) fail("native trusted anchor is not a directory");
-  return [{ raw: rawPath, native: nativePath, realNative: fs.realpathSync(nativePath.value) }];
+  const realNative = fs.realpathSync(nativePath.value);
+  return [{ raw: rawPath, native: nativePath, physical: analyzePath(realNative, "physical trusted anchor"), realNative }];
 });
 const anchorCache = new Map();
 const anchorContext = anchorValue => {
@@ -129,6 +130,8 @@ const anchorContext = anchorValue => {
     if (rawRelative !== null) candidates.push({ mapping, relative: rawRelative, source: mapping.raw });
     const nativeRelative = relativeWithin(mapping.native, anchor);
     if (nativeRelative !== null) candidates.push({ mapping, relative: nativeRelative, source: mapping.native });
+    const physicalRelative = relativeWithin(mapping.physical, anchor);
+    if (physicalRelative !== null) candidates.push({ mapping, relative: physicalRelative, source: mapping.physical });
   }
   candidates.sort((left, right) => right.source.value.length - left.source.value.length);
   let context;
@@ -151,6 +154,7 @@ const anchorContext = anchorValue => {
     context = {
       raw: analyzePath(mapping.raw.api.resolve(mapping.raw.value, ...parts), "raw anchor"),
       nativeLogical: analyzePath(logicalNative, "native anchor"),
+      nativePhysical: analyzePath(native, "physical native anchor"),
       native: fs.realpathSync(native)
     };
   } else if (process.platform !== "win32") {
@@ -158,7 +162,7 @@ const anchorContext = anchorValue => {
     try { stat = fs.statSync(anchor.value); } catch (_) { fail("anchor is missing"); }
     if (!stat.isDirectory()) fail("anchor is unsafe");
     const native = fs.realpathSync(anchor.value);
-    context = { raw: anchor, nativeLogical: analyzePath(native, "native anchor"), native };
+    context = { raw: anchor, nativeLogical: analyzePath(native, "native anchor"), nativePhysical: analyzePath(native, "physical native anchor"), native };
   } else {
     fail("anchor is not covered by a trusted raw/native mapping");
   }
@@ -172,6 +176,10 @@ const deriveChild = (context, value, label) => {
   if (relative === null) {
     relative = relativeWithin(context.nativeLogical, child);
     source = context.nativeLogical;
+  }
+  if (relative === null) {
+    relative = relativeWithin(context.nativePhysical, child);
+    source = context.nativePhysical;
   }
   if (relative === null) fail(`${label} escapes HOME`);
   const parts = safeParts(relative, source, label);
@@ -221,7 +229,7 @@ const regular = (file, label, max) => {
 const hash = file => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 
 if (!root || /[\0\r\n]/.test(root)) fail("fixed root is unavailable or unsafe");
-const home = process.env.HOME || "";
+const home = process.env.ZENSU_KIRO_HOME_ANCHOR_RAW || "";
 if (!home || /[\0\r\n]/.test(home)) fail("HOME is unavailable or unsafe");
 const homeContext = anchorContext(home);
 const canonicalHome = homeContext.native;
@@ -310,6 +318,7 @@ const expectedRuntime = /* zensu-runtime-inventory:start */ [
   "hooks/kiro/kiro-shim.sh",
   "hooks/lib/resolve-plugin-root.sh",
   "hooks/lib/resolve-native-anchor.js",
+  "hooks/lib/capture-native-shell-pid.sh",
   "hooks/lib/kiro-runtime-lock.js",
   "hooks/lib/resolve-session-id.js",
   "hooks/lib/zensu-cli-map.sh",

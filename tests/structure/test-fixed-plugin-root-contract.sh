@@ -6,11 +6,13 @@ INSTALL="$ROOT/install.sh"
 RESOLVER_SRC="$ROOT/hooks/lib/resolve-plugin-root.sh"
 INVENTORY="$ROOT/runtime-files.txt"
 ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+NATIVE_PID_HELPER="$ROOT/hooks/lib/capture-native-shell-pid.sh"
+. "$NATIVE_PID_HELPER"
 CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -62,7 +64,7 @@ ZENSU_KIRO_TEST_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$TMP" node "$ANCHOR_HELP
   echo "could not resolve test anchor" >&2; exit 1;
 }
 export ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE
-node -p 'process.ppid' > "$TMP/native-shell.pid"
+zensu_capture_native_shell_pid "$TMP/native-shell.pid" || { echo "could not capture native shell PID" >&2; exit 1; }
 LIVE_PID="$(cat "$TMP/native-shell.pid")"
 export HOME="$TMP/home with space"
 mkdir -p "$HOME/.zensu" "$TMP/workspace with space"
@@ -89,6 +91,7 @@ manifest.files[alias] = manifest.files[key];
 delete manifest.files[key];
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 NODE
+  [ "$?" -eq 0 ] || { bad "K3c could not create case-alias manifest fixture"; exit 1; }
   if env HOME="$HOME" bash "$RESOLVER" 1 >/dev/null 2>&1; then
     bad "K3c resolver accepted a case-aliased manifest path"
   else
@@ -121,11 +124,11 @@ else
 fi
 
 AGENT="$HOME/.kiro/agents/zensu.json"
-if AGENT="$AGENT" RUNTIME="$RUNTIME" node - <<'NODE'
+if AGENT="$AGENT" ZENSU_KIRO_TEST_RAW_PATH="$RUNTIME" node - <<'NODE'
 const j = require(process.env.AGENT);
 const hooks = Object.values(j.hooks || {}).flat();
 if (!hooks.length) process.exit(1);
-const prefix = `bash "${process.env.RUNTIME}/hooks/kiro/kiro-shim.sh" 1 `;
+const prefix = `bash "${process.env.ZENSU_KIRO_TEST_RAW_PATH}/hooks/kiro/kiro-shim.sh" 1 `;
 if (!hooks.every(h => typeof h.command === "string" && h.command.startsWith(prefix))) process.exit(2);
 NODE
 then
@@ -228,12 +231,13 @@ fi
 # manifest instead of remaining as unrecorded hooks that brick validation.
 OBSOLETE="$RUNTIME/hooks/obsolete-runtime.sh"
 printf '#!/bin/bash\necho obsolete\n' > "$OBSOLETE"; chmod 755 "$OBSOLETE"
-MANIFEST="$RUNTIME/manifest.json" OBSOLETE="$OBSOLETE" node - <<'NODE'
+MANIFEST="$RUNTIME/manifest.json" ZENSU_KIRO_TEST_RAW_PATH="$OBSOLETE" node - "$OBSOLETE" <<'NODE'
 const fs=require("fs"),crypto=require("crypto"),p=process.env.MANIFEST;
 const m=JSON.parse(fs.readFileSync(p));
-m.files[process.env.OBSOLETE]=crypto.createHash("sha256").update(fs.readFileSync(process.env.OBSOLETE)).digest("hex");
+m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH]=crypto.createHash("sha256").update(fs.readFileSync(process.argv[2])).digest("hex");
 fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");
 NODE
+[ "$?" -eq 0 ] || { bad "K7c could not record obsolete runtime fixture"; exit 1; }
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && [ ! -e "$OBSOLETE" ] && \
    [ "$(env HOME="$HOME" bash "$RUNTIME/hooks/lib/resolve-plugin-root.sh" 1 2>/dev/null)" = "$RUNTIME" ]; then
@@ -245,12 +249,13 @@ else
 fi
 
 printf '#!/bin/bash\necho managed-old\n' > "$OBSOLETE"; chmod 755 "$OBSOLETE"
-MANIFEST="$RUNTIME/manifest.json" OBSOLETE="$OBSOLETE" node - <<'NODE'
+MANIFEST="$RUNTIME/manifest.json" ZENSU_KIRO_TEST_RAW_PATH="$OBSOLETE" node - "$OBSOLETE" <<'NODE'
 const fs=require("fs"),crypto=require("crypto"),p=process.env.MANIFEST;
 const m=JSON.parse(fs.readFileSync(p));
-m.files[process.env.OBSOLETE]=crypto.createHash("sha256").update(fs.readFileSync(process.env.OBSOLETE)).digest("hex");
+m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH]=crypto.createHash("sha256").update(fs.readFileSync(process.argv[2])).digest("hex");
 fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");
 NODE
+[ "$?" -eq 0 ] || { bad "K7d could not record modified obsolete runtime fixture"; exit 1; }
 printf '#!/bin/bash\necho user-modified\n' > "$OBSOLETE"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 if [ "$RC" -ne 0 ] && grep -q 'obsolete runtime is user-modified' <<< "$OUT" && \
@@ -262,7 +267,8 @@ fi
 bash "$INSTALL" --scope user --no-default --force >/dev/null 2>&1
 
 MANIFEST="$RUNTIME/manifest.json"
-MANIFEST="$MANIFEST" node -e 'const fs=require("fs");const p=process.env.MANIFEST;const m=JSON.parse(fs.readFileSync(p));m.version="9.0.0";fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");'
+MANIFEST="$MANIFEST" node -e 'const fs=require("fs");const p=process.env.MANIFEST;const m=JSON.parse(fs.readFileSync(p));m.version="9.0.0";fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");' || \
+  { bad "K8 could not create downgrade manifest fixture"; exit 1; }
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 if [ "$RC" -ne 0 ] && printf '%s' "$OUT" | grep -qi 'downgrade'; then
   ok "K8 installer refuses an older checkout over a newer runtime"
@@ -289,10 +295,10 @@ else
   bad "K10b workspace install changed fixed-root resolution"
 fi
 WS_AGENT="$WS/.kiro/agents/zensu.json"
-if AGENT="$WS_AGENT" RUNTIME="$RUNTIME" node - <<'NODE'
+if AGENT="$WS_AGENT" ZENSU_KIRO_TEST_RAW_PATH="$RUNTIME" node - <<'NODE'
 const j=JSON.parse(require("fs").readFileSync(process.env.AGENT,"utf8"));
 const hooks=Object.values(j.hooks||{}).flat();
-const prefix=`bash "${process.env.RUNTIME}/hooks/kiro/kiro-shim.sh" 1 `;
+const prefix=`bash "${process.env.ZENSU_KIRO_TEST_RAW_PATH}/hooks/kiro/kiro-shim.sh" 1 `;
 if (!hooks.length || !hooks.every(h=>typeof h.command==="string" && h.command.startsWith(prefix))) process.exit(1);
 NODE
 then
@@ -386,15 +392,16 @@ ALIAS_MANIFEST="$TMP/manifest-before-alias.json"
 cp "$RUNTIME/manifest.json" "$ALIAS_MANIFEST"
 ALIAS_AGENT="$HOME/.kiro/agents/zensu.json"
 ALIAS_KEY="$RUNTIME/../agents/zensu.json"
-MANIFEST="$RUNTIME/manifest.json" AGENT="$ALIAS_AGENT" ALIAS_KEY="$ALIAS_KEY" node - <<'NODE'
+MANIFEST="$RUNTIME/manifest.json" ZENSU_KIRO_TEST_RAW_PATH="$ALIAS_AGENT" ZENSU_KIRO_TEST_RAW_ALIAS="$ALIAS_KEY" node - <<'NODE'
 const fs=require("fs"),p=process.env.MANIFEST;
 const m=JSON.parse(fs.readFileSync(p,"utf8"));
-const hash=m.files[process.env.AGENT];
+const hash=m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH];
 if (!hash) process.exit(1);
-delete m.files[process.env.AGENT];
-m.files[process.env.ALIAS_KEY]=hash;
+delete m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH];
+m.files[process.env.ZENSU_KIRO_TEST_RAW_ALIAS]=hash;
 fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");
 NODE
+[ "$?" -eq 0 ] || { bad "K13b could not create non-canonical alias fixture"; exit 1; }
 ALIAS_MANIFEST_BYTES="$(cat "$RUNTIME/manifest.json")"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 if [ "$RC" -ne 0 ] && [ -f "$ALIAS_AGENT" ] && \
@@ -414,15 +421,16 @@ CASE_ALIAS="$RUNTIME/HOOKS/lib/zensu-log.sh"
 if [ -e "$CASE_ALIAS" ]; then
   CASE_MANIFEST="$TMP/manifest-before-case-alias.json"
   cp "$RUNTIME/manifest.json" "$CASE_MANIFEST"
-  MANIFEST="$RUNTIME/manifest.json" HOOK="$CASE_HOOK" ALIAS_KEY="$CASE_ALIAS" node - <<'NODE'
+  MANIFEST="$RUNTIME/manifest.json" ZENSU_KIRO_TEST_RAW_PATH="$CASE_HOOK" ZENSU_KIRO_TEST_RAW_ALIAS="$CASE_ALIAS" node - <<'NODE'
 const fs=require("fs"),p=process.env.MANIFEST;
 const m=JSON.parse(fs.readFileSync(p,"utf8"));
-const hash=m.files[process.env.HOOK];
+const hash=m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH];
 if (!hash) process.exit(1);
-delete m.files[process.env.HOOK];
-m.files[process.env.ALIAS_KEY]=hash;
+delete m.files[process.env.ZENSU_KIRO_TEST_RAW_PATH];
+m.files[process.env.ZENSU_KIRO_TEST_RAW_ALIAS]=hash;
 fs.writeFileSync(p,JSON.stringify(m,null,2)+"\n");
 NODE
+  [ "$?" -eq 0 ] || { bad "K13c could not create case-alias fixture"; exit 1; }
   CASE_MANIFEST_BYTES="$(cat "$RUNTIME/manifest.json")"
   OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
   if [ "$RC" -ne 0 ] && [ -f "$CASE_HOOK" ] && \

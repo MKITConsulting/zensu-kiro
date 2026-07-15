@@ -51,7 +51,7 @@ configure_windows_native_tools() {
       # argv conversion for script/executable paths.
       local raw_name
       if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW; do
           case ";${MSYS2_ENV_CONV_EXCL:-};" in
             *";$raw_name;"*) ;;
             *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;
@@ -73,15 +73,16 @@ configure_windows_native_tools() {
 configure_windows_native_tools || runtime_unavailable
 NATIVE_ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
 [ -f "$NATIVE_ANCHOR_HELPER" ] || runtime_unavailable
+NATIVE_PID_HELPER="$ROOT/hooks/lib/capture-native-shell-pid.sh"
+[ -f "$NATIVE_PID_HELPER" ] || runtime_unavailable
+. "$NATIVE_PID_HELPER"
 ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
 ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || runtime_unavailable
 export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
 LOCK_HELPER="$ROOT/hooks/lib/kiro-runtime-lock.js"
 LOCK_PATH="$HOME/.zensu-kiro-install.lock"
-# Invoke Node directly: inside command substitution process.ppid would belong
-# to a transient subshell and the runtime lock would immediately look stale.
 LOCK_PID_FILE="$(mktemp 2>/dev/null)" || runtime_unavailable
-if ! node -p 'process.ppid' > "$LOCK_PID_FILE" 2>/dev/null; then
+if ! zensu_capture_native_shell_pid "$LOCK_PID_FILE"; then
   rm -f "$LOCK_PID_FILE" 2>/dev/null || true
   runtime_unavailable
 fi

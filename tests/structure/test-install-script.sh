@@ -25,7 +25,7 @@ CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS ZENSU_INSTALL_TEST_FAIL_TARGET; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -47,11 +47,24 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 mt() { node -e 'console.log(require("fs").statSync(process.argv[1]).mtimeMs)' "$1" 2>/dev/null; }
 hash_file() { node -e 'const fs=require("fs"),c=require("crypto");process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"; }
+create_directory_link() { # $1=target $2=link
+  local target="$1" link="$2" target_native link_native
+  if [ -n "$CYGPATH_POSIX" ]; then
+    target_native="$("$CYGPATH_POSIX" -am "$target")" || return 1
+    link_native="$("$CYGPATH_POSIX" -am "$link")" || return 1
+    node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' "$target_native" "$link_native" >/dev/null 2>&1
+  else
+    ln -s "$target" "$link" 2>/dev/null
+  fi
+}
+native_node_sees_link() { node -e 'if (!require("fs").lstatSync(process.argv[1]).isSymbolicLink()) process.exit(1)' "$1" >/dev/null 2>&1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 mkdir -p "$HOME/.kiro/settings"
-node -p 'process.ppid' > "$TMP/native-shell.pid"
+NATIVE_PID_HELPER="$ROOT/hooks/lib/capture-native-shell-pid.sh"
+. "$NATIVE_PID_HELPER"
+zensu_capture_native_shell_pid "$TMP/native-shell.pid" || { echo "could not capture native shell PID" >&2; exit 1; }
 LIVE_PID="$(cat "$TMP/native-shell.pid")"
 
 INSTALL="$ROOT/install.sh"
@@ -81,7 +94,7 @@ STAR_EXCL="$MSYS2_ENV_CONV_EXCL"
 MSYS2_ENV_CONV_EXCL='keep-one;keep-two'; configure_windows_native_tools >/dev/null 2>&1 || true
 configure_windows_native_tools >/dev/null 2>&1 || true
 LIST_EXCL="$MSYS2_ENV_CONV_EXCL"
-EXPECTED_EXCL='keep-one;keep-two;ZENSU_KIRO_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_RAW;ZENSU_KIRO_WORKSPACE_ANCHOR_RAW;ZENSU_KIRO_TEST_ANCHOR_RAW;ZENSU_KIRO_ROOT'
+EXPECTED_EXCL='keep-one;keep-two;ZENSU_KIRO_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_RAW;ZENSU_KIRO_WORKSPACE_ANCHOR_RAW;ZENSU_KIRO_TEST_ANCHOR_RAW;ZENSU_KIRO_ROOT;ZENSU_KIRO_RENDER_HOME_RAW'
 OSTYPE="$SAVED_OSTYPE"
 if [ -n "$SAVED_EXCL_SET" ]; then MSYS2_ENV_CONV_EXCL="$SAVED_EXCL"; export MSYS2_ENV_CONV_EXCL; else unset MSYS2_ENV_CONV_EXCL; fi
 if [ "$STAR_EXCL" = '*' ] && [ "$LIST_EXCL" = "$EXPECTED_EXCL" ]; then
@@ -208,15 +221,17 @@ TRAIL_MANIFEST="$TMP/manifest.before-trailing-key.json"
 cp "$HOME/.kiro/zensu/manifest.json" "$TRAIL_MANIFEST"
 TRAIL_ARTIFACT="$HOME/.kiro/agents/zensu.json"
 TRAIL_HASH="$(hash_file "$TRAIL_ARTIFACT")"
-MANIFEST="$HOME/.kiro/zensu/manifest.json" ARTIFACT="$TRAIL_ARTIFACT" node - <<'NODE'
+MANIFEST="$HOME/.kiro/zensu/manifest.json" ZENSU_KIRO_TEST_RAW_PATH="$TRAIL_ARTIFACT" node - <<'NODE'
 const fs = require("fs");
 const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
-const hash = manifest.files[process.env.ARTIFACT];
+const artifact = process.env.ZENSU_KIRO_TEST_RAW_PATH;
+const hash = manifest.files[artifact];
 if (!hash) process.exit(1);
-delete manifest.files[process.env.ARTIFACT];
-manifest.files[`${process.env.ARTIFACT}/`] = hash;
+delete manifest.files[artifact];
+manifest.files[`${artifact}/`] = hash;
 fs.writeFileSync(process.env.MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 NODE
+[ "$?" -eq 0 ] || { bad "could not create trailing-separator manifest fixture"; exit 1; }
 TRAIL_BYTES="$(cat "$HOME/.kiro/zensu/manifest.json")"
 node "$HELPER" preflight "$HOME/.kiro/zensu/manifest.json" "$HOME/.kiro/zensu/VERSION" \
   "$(cat "$ROOT/VERSION")" "$HOME/.kiro" "$HOME" 1 >/dev/null 2>&1; TRAIL_PREFLIGHT_RC=$?
@@ -358,16 +373,16 @@ mkdir -p "$EVIL_HOME"
 OUT="$(cd "$EVIL_BASE" && HOME="$EVIL_HOME" bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "hostile-but-valid HOME installs successfully" || bad "hostile HOME install rc=$RC: $OUT"
 EVIL_AGENT="$EVIL_HOME/.kiro/agents/zensu.json"
-if AGENT="$EVIL_AGENT" node -e 'JSON.parse(require("fs").readFileSync(process.env.AGENT,"utf8"))' 2>/dev/null; then
+if node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))' < "$EVIL_AGENT" 2>/dev/null; then
   ok "rendered agent remains valid JSON for hostile HOME"
 else
   bad "raw HOME interpolation corrupted rendered agent JSON"
 fi
-CMD="$(AGENT="$EVIL_AGENT" node -e '
-  const j=JSON.parse(require("fs").readFileSync(process.env.AGENT,"utf8"));
+CMD="$(node -e '
+  const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
   const hook=Object.values(j.hooks||{}).flat().find(x=>x&&typeof x.command==="string");
   process.stdout.write(hook ? hook.command : "");
-' 2>/dev/null)"
+' < "$EVIL_AGENT" 2>/dev/null)"
 if [ -n "$CMD" ]; then
   ( cd "$EVIL_BASE" && bash -c "$CMD" </dev/null >/dev/null 2>&1 ) || true
 fi
@@ -386,7 +401,7 @@ fi
 #     intended root.
 SYM_HOME="$TMP/symlink-install-home"; SYM_OUT="$TMP/symlink-install-outside"
 mkdir -p "$SYM_HOME" "$SYM_OUT"
-if ln -s "$SYM_OUT" "$SYM_HOME/.kiro" 2>/dev/null; then
+if create_directory_link "$SYM_OUT" "$SYM_HOME/.kiro" && native_node_sees_link "$SYM_HOME/.kiro"; then
   HOME="$SYM_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1; RC=$?
   [ "$RC" -ne 0 ] && ok "install rejects a symlinked .kiro root" || bad "install followed symlinked .kiro root"
   [ ! -e "$SYM_OUT/zensu" ] && ok "symlinked install wrote nothing outside HOME" || bad "install escaped through .kiro symlink"
@@ -400,7 +415,8 @@ fi
 UN_HOME="$TMP/symlink-uninstall-home"; UN_OUT="$TMP/symlink-uninstall-outside"
 mkdir -p "$UN_HOME" "$UN_OUT"
 HOME="$UN_HOME" bash "$INSTALL" --scope user --no-default >/dev/null 2>&1
-if mv "$UN_HOME/.kiro/agents" "$UN_HOME/.kiro/agents-real" 2>/dev/null && ln -s "$UN_OUT" "$UN_HOME/.kiro/agents" 2>/dev/null; then
+if mv "$UN_HOME/.kiro/agents" "$UN_HOME/.kiro/agents-real" 2>/dev/null && \
+   create_directory_link "$UN_OUT" "$UN_HOME/.kiro/agents" && native_node_sees_link "$UN_HOME/.kiro/agents"; then
   cp "$UN_HOME/.kiro/agents-real/zensu.json" "$UN_OUT/zensu.json"
   HOME="$UN_HOME" bash "$INSTALL" --scope user --uninstall --force >/dev/null 2>&1; RC=$?
   [ "$RC" -ne 0 ] && ok "uninstall rejects a symlinked manifest path" || bad "uninstall followed a symlinked manifest path"

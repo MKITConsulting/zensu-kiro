@@ -60,7 +60,7 @@ configure_windows_native_tools() {
       # argv conversion for script/executable paths.
       local raw_name
       if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW; do
           case ";${MSYS2_ENV_CONV_EXCL:-};" in
             *";$raw_name;"*) ;;
             *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;
@@ -82,6 +82,9 @@ configure_windows_native_tools() {
 configure_windows_native_tools || { echo "FATAL: cannot bind trusted Git Bash path tools" >&2; exit 1; }
 NATIVE_ANCHOR_HELPER="$SRC/hooks/lib/resolve-native-anchor.js"
 [ -f "$NATIVE_ANCHOR_HELPER" ] || { echo "FATAL: native anchor resolver is missing" >&2; exit 1; }
+NATIVE_PID_HELPER="$SRC/hooks/lib/capture-native-shell-pid.sh"
+[ -f "$NATIVE_PID_HELPER" ] || { echo "FATAL: native shell PID helper is missing" >&2; exit 1; }
+. "$NATIVE_PID_HELPER"
 ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
 ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>&1)"; ANCHOR_RC=$?
 [ "$ANCHOR_RC" -eq 0 ] || { echo "FATAL: unsafe HOME: $ZENSU_KIRO_HOME_ANCHOR_NATIVE" >&2; exit 1; }
@@ -138,10 +141,8 @@ LOCK_HELD=0
 LOCK_TOKEN=""
 LOCK_OWNER_PID="1"
 if [ "$DRY" -eq 0 ]; then
-  # Invoke Node directly and capture through a file. Command substitution would
-  # make process.ppid identify a short-lived subshell instead of this installer.
   LOCK_PID_FILE="$(mktemp)" || { echo "FATAL: cannot allocate native PID capture" >&2; exit 1; }
-  if ! node -p 'process.ppid' > "$LOCK_PID_FILE" 2>/dev/null; then
+  if ! zensu_capture_native_shell_pid "$LOCK_PID_FILE"; then
     rm -f "$LOCK_PID_FILE"
     echo "FATAL: cannot determine native shell PID for install lock" >&2
     exit 1
@@ -257,7 +258,7 @@ install_file() {
   local src="$1" dst="$2" list="$3" root="$4" anchor="$5" render="${6:-no}"
   local content old want recorded state result rc executable=0 expected_hash="-"
   if [ "$render" = "render" ]; then
-    content="$(node "$INSTALL_SUPPORT" render-json "$ZENSU_HOME" < "$src" 2>/dev/null)"; rc=$?
+    content="$(ZENSU_KIRO_RENDER_HOME_RAW="$ZENSU_HOME" node "$INSTALL_SUPPORT" render-json < "$src" 2>/dev/null)"; rc=$?
     [ "$rc" -eq 0 ] || { echo "FATAL: cannot render $src safely: $content" >&2; exit 1; }
   else
     content="$(cat "$src")"

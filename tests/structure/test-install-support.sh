@@ -5,11 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HELPER="$ROOT/scripts/install-support.js"
 RUNTIME_LOCK="$ROOT/hooks/lib/kiro-runtime-lock.js"
 ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
+NATIVE_PID_HELPER="$ROOT/hooks/lib/capture-native-shell-pid.sh"
+. "$NATIVE_PID_HELPER"
 CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -40,8 +42,13 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/root" "$TMP/barrier"
 # Lock liveness is checked by native Node, so fixtures must use a native PID,
 # not Git Bash's separate MSYS PID namespace.
-node -p 'process.ppid' > "$TMP/native-shell.pid"
+zensu_capture_native_shell_pid "$TMP/native-shell.pid" || { echo "could not capture native shell PID" >&2; exit 1; }
 LIVE_PID="$(cat "$TMP/native-shell.pid")"
+if node -e 'process.kill(Number(process.argv[1]), 0)' "$LIVE_PID" >/dev/null 2>&1; then
+  ok "native shell PID fixture identifies a live OS process"
+else
+  bad "native shell PID fixture is not live in Node's OS namespace"
+fi
 
 # Native Windows Node must use the converter physically paired with the
 # running Git Bash, convert only the existing anchor, and reject every
@@ -49,7 +56,7 @@ LIVE_PID="$(cat "$TMP/native-shell.pid")"
 if [ -n "$CYGPATH_POSIX" ]; then
   RAW_ENV_OK=1
   RAW_ENV_PROBE='/tmp/zensu-env-raw-proof'
-  for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT; do
+  for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
     RAW_ENV_GOT="$(env "$RAW_ENV_NAME=$RAW_ENV_PROBE" ZENSU_KIRO_RAW_ENV_NAME="$RAW_ENV_NAME" \
       node -e 'process.stdout.write(process.env[process.env.ZENSU_KIRO_RAW_ENV_NAME] || "")')"
     [ "$RAW_ENV_GOT" = "$RAW_ENV_PROBE" ] || RAW_ENV_OK=0
@@ -486,7 +493,7 @@ node "$RUNTIME_LOCK" not-a-command >/dev/null 2>&1; RC=$?
 # that NTFS forbids in a real HOME directory.
 printf '{"hooks":{"x":[{"command":"bash \\\"__ZENSU_HOME__/hook.sh\\\""}]}}\n' > "$TMP/agent.json"
 HOSTILE='C:\path with space\" and $dollar `tick`'
-RENDERED="$(node "$HELPER" render-json "$HOSTILE" < "$TMP/agent.json" 2>&1)"; RC=$?
+RENDERED="$(ZENSU_KIRO_RENDER_HOME_RAW="$HOSTILE" node "$HELPER" render-json < "$TMP/agent.json" 2>&1)"; RC=$?
 if [ "$RC" -eq 0 ] && RENDERED="$RENDERED" HOSTILE="$HOSTILE" node -e '
   const j=JSON.parse(process.env.RENDERED); const c=j.hooks.x[0].command;
   if (!c.includes("\\\\") || !c.includes("\\\"") || !c.includes("\\$") || !c.includes("\\`")) process.exit(1);

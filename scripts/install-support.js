@@ -91,7 +91,8 @@ const mappings = mappingSpecs.flatMap(([rawName, nativeName]) => {
   let stat;
   try { stat = fs.statSync(nativePath.value); } catch (_) { fail("native trusted anchor is missing"); }
   if (!stat.isDirectory()) fail("native trusted anchor is not a directory");
-  return [{ raw: rawPath, native: nativePath, realNative: fs.realpathSync(nativePath.value) }];
+  const realNative = fs.realpathSync(nativePath.value);
+  return [{ raw: rawPath, native: nativePath, physical: analyzePath(realNative, "physical trusted anchor"), realNative }];
 });
 
 function safeParts(relative, source, label) {
@@ -119,6 +120,7 @@ function contextFromMapping(mapping, anchor, relative, source) {
   return {
     raw: analyzePath(rawValue, "raw anchor"),
     nativeLogical: analyzePath(nativeLogicalValue, "native anchor"),
+    nativePhysical: analyzePath(nativeValue, "physical native anchor"),
     native: fs.realpathSync(nativeValue),
     source: anchor
   };
@@ -135,6 +137,8 @@ function anchorContext(anchorValue) {
     if (rawRelative !== null) candidates.push({ mapping, relative: rawRelative, source: mapping.raw });
     const nativeRelative = relativeWithin(mapping.native, anchor);
     if (nativeRelative !== null) candidates.push({ mapping, relative: nativeRelative, source: mapping.native });
+    const physicalRelative = relativeWithin(mapping.physical, anchor);
+    if (physicalRelative !== null) candidates.push({ mapping, relative: physicalRelative, source: mapping.physical });
   }
   candidates.sort((left, right) => right.source.value.length - left.source.value.length);
   let context;
@@ -146,7 +150,7 @@ function anchorContext(anchorValue) {
     try { stat = fs.statSync(anchor.value); } catch (_) { fail("trusted anchor is missing"); }
     if (!stat.isDirectory()) fail("trusted anchor is not a directory");
     const native = fs.realpathSync(anchor.value);
-    context = { raw: anchor, nativeLogical: analyzePath(native, "native anchor"), native, source: anchor };
+    context = { raw: anchor, nativeLogical: analyzePath(native, "native anchor"), nativePhysical: analyzePath(native, "physical native anchor"), native, source: anchor };
   } else {
     fail("anchor is not covered by a trusted raw/native mapping");
   }
@@ -161,6 +165,10 @@ function deriveChild(context, value, label) {
   if (relative === null) {
     relative = relativeWithin(context.nativeLogical, child);
     source = context.nativeLogical;
+  }
+  if (relative === null) {
+    relative = relativeWithin(context.nativePhysical, child);
+    source = context.nativePhysical;
   }
   if (relative === null) fail(`${label} escapes its trusted anchor`);
   const parts = safeParts(relative, source, label);
@@ -526,6 +534,7 @@ function shellDoubleQuoted(value) {
 }
 
 function renderJson(home) {
+  if (typeof home !== "string" || !home) fail("HOME is unavailable");
   if (/[\x00-\x1f\x7f]/.test(home)) fail("HOME contains control characters");
   let value;
   try { value = JSON.parse(fs.readFileSync(0, "utf8")); }
@@ -621,7 +630,7 @@ function main() {
     case "remove": safeRemove(args[0], args[1], args[2], args[3]); break;
     case "mkdir": ensureDirectory(args[0], args[1], args[2]); break;
     case "preflight": preflight(args); break;
-    case "render-json": renderJson(args[0]); break;
+    case "render-json": renderJson(process.env.ZENSU_KIRO_RENDER_HOME_RAW || ""); break;
     case "manifest-lookup": manifestLookup(args); break;
     case "manifest-lines": manifestLines(args); break;
     case "write-manifest": writeManifest(args); break;

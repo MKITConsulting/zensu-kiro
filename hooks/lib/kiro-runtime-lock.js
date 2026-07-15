@@ -65,7 +65,8 @@ const mappings = mappingSpecs.flatMap(([rawName, nativeName]) => {
   let stat;
   try { stat = fs.statSync(nativePath.value); } catch (_) { fail("native trusted anchor is missing"); }
   if (!stat.isDirectory()) fail("native trusted anchor is not a directory");
-  return [{ raw: rawPath, native: nativePath, realNative: fs.realpathSync(nativePath.value) }];
+  const realNative = fs.realpathSync(nativePath.value);
+  return [{ raw: rawPath, native: nativePath, physical: analyzePath(realNative, "physical trusted anchor"), realNative }];
 });
 const safeDirectChild = (relative, source, label) => {
   if (!relative || relative.includes(source.api.sep)) fail(`${label} must be a direct child of its anchor`);
@@ -86,6 +87,8 @@ function anchorContext(anchorValue) {
     if (rawRelative !== null) candidates.push({ mapping, relative: rawRelative, source: mapping.raw });
     const nativeRelative = relativeWithin(mapping.native, anchor);
     if (nativeRelative !== null) candidates.push({ mapping, relative: nativeRelative, source: mapping.native });
+    const physicalRelative = relativeWithin(mapping.physical, anchor);
+    if (physicalRelative !== null) candidates.push({ mapping, relative: physicalRelative, source: mapping.physical });
   }
   candidates.sort((left, right) => right.source.value.length - left.source.value.length);
   let context;
@@ -112,6 +115,7 @@ function anchorContext(anchorValue) {
     context = {
       raw: analyzePath(mapping.raw.api.resolve(mapping.raw.value, ...parts), "raw lock anchor"),
       nativeLogical: analyzePath(logicalNative, "native lock anchor"),
+      nativePhysical: analyzePath(native, "physical native lock anchor"),
       native: fs.realpathSync(native)
     };
   } else if (process.platform !== "win32") {
@@ -119,7 +123,7 @@ function anchorContext(anchorValue) {
     try { stat = fs.statSync(anchor.value); } catch (_) { fail("lock anchor is missing"); }
     if (!stat.isDirectory()) fail("lock anchor is unsafe");
     const native = fs.realpathSync(anchor.value);
-    context = { raw: anchor, nativeLogical: analyzePath(native, "native lock anchor"), native };
+    context = { raw: anchor, nativeLogical: analyzePath(native, "native lock anchor"), nativePhysical: analyzePath(native, "physical native lock anchor"), native };
   } else {
     fail("lock anchor is not covered by a trusted raw/native mapping");
   }
@@ -135,6 +139,10 @@ function actualLockPath(anchorValue, lockValue) {
   if (relative === null) {
     relative = relativeWithin(context.nativeLogical, lock);
     source = context.nativeLogical;
+  }
+  if (relative === null) {
+    relative = relativeWithin(context.nativePhysical, lock);
+    source = context.nativePhysical;
   }
   if (relative === null) fail("lock path escapes its anchor");
   const component = safeDirectChild(relative, source, "lock path");
