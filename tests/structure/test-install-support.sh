@@ -11,7 +11,7 @@ CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -56,12 +56,20 @@ fi
 if [ -n "$CYGPATH_POSIX" ]; then
   RAW_ENV_OK=1
   RAW_ENV_PROBE='/tmp/zensu-env-raw-proof'
-  for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
+  for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
     RAW_ENV_GOT="$(env "$RAW_ENV_NAME=$RAW_ENV_PROBE" ZENSU_KIRO_RAW_ENV_NAME="$RAW_ENV_NAME" \
       node -e 'process.stdout.write(process.env[process.env.ZENSU_KIRO_RAW_ENV_NAME] || "")')"
     [ "$RAW_ENV_GOT" = "$RAW_ENV_PROBE" ] || RAW_ENV_OK=0
   done
-  [ "$RAW_ENV_OK" -eq 1 ] && ok "MSYS keeps every logical anchor environment value byte-for-byte raw" || bad "MSYS converted a logical anchor environment value"
+  [ "$RAW_ENV_OK" -eq 1 ] && ok "MSYS keeps every bound anchor environment value byte-for-byte" || bad "MSYS converted a bound anchor environment value"
+  NATIVE_ENV_OK=1
+  NATIVE_ENV_PROBE='C:/zensu native anchor;D:/second native anchor'
+  for NATIVE_ENV_NAME in ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_NATIVE; do
+    NATIVE_ENV_GOT="$(env "$NATIVE_ENV_NAME=$NATIVE_ENV_PROBE" ZENSU_KIRO_NATIVE_ENV_NAME="$NATIVE_ENV_NAME" \
+      node -e 'process.stdout.write(process.env[process.env.ZENSU_KIRO_NATIVE_ENV_NAME] || "")')"
+    [ "$NATIVE_ENV_GOT" = "$NATIVE_ENV_PROBE" ] || NATIVE_ENV_OK=0
+  done
+  [ "$NATIVE_ENV_OK" -eq 1 ] && ok "MSYS preserves semicolon-bearing native anchor identities" || bad "MSYS reconverted a native anchor identity"
   if ZENSU_KIRO_ANCHOR_RAW="$RAW_ENV_PROBE" node -e '
     const path = require("path");
     if (process.argv[1] === process.env.ZENSU_KIRO_ANCHOR_RAW || !path.win32.isAbsolute(process.argv[1])) process.exit(1);
@@ -298,6 +306,28 @@ node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$(printf '0%.0s' {1..64}
 [ "$RC" -ne 0 ] && [ -f "$LOCK" ] && [ ! -L "$LOCK" ] && ok "wrong token cannot release a lock" || bad "wrong token released a lock"
 node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 
+# Recovery-claim publication uses a same-prefix pending file. A fresh empty
+# pending file is first-class busy state; once genuinely stale, it is removed
+# by snapshot identity and normal acquisition can continue.
+EMPTY_CLAIM_TOKEN="$(printf '9%.0s' {1..64})"
+EMPTY_CLAIM="$LOCK.recovery.reclaim.$EMPTY_CLAIM_TOKEN.pending.1234.abcdef0123456789"
+: > "$EMPTY_CLAIM"
+node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" >/dev/null 2>&1; RC=$?
+if [ "$RC" -eq 75 ] && [ -f "$EMPTY_CLAIM" ]; then
+  ok "fresh empty recovery-claim publication is retryable busy"
+else
+  bad "fresh empty recovery-claim publication was fatal or reclaimed (rc=$RC)"
+fi
+node -e 'const fs=require("fs");const old=new Date(Date.now()-5000);fs.utimesSync(process.argv[1],old,old)' "$EMPTY_CLAIM"
+TOKEN="$(node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$EMPTY_CLAIM" ] && \
+   node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1; then
+  ok "stale empty recovery-claim publication is reclaimed safely"
+else
+  bad "stale empty recovery-claim publication did not converge (rc=$RC)"
+  rm -f "$LOCK" "$EMPTY_CLAIM"
+fi
+
 # Recovery is serialized: a slow contender that observed a stale lock cannot
 # later quarantine the live lock published by the winning contender.
 capture_dead_pid "$TMP/dead.pid"; DEAD_PID="$(cat "$TMP/dead.pid")"
@@ -378,13 +408,17 @@ for n in 1 2 3 4 5 6 7 8; do
 done
 : > "$CONCURRENT_START"
 for pid in $CONCURRENT_PIDS; do wait "$pid" 2>/dev/null || true; done
-CONCURRENT_WINNERS=0; CONCURRENT_BUSY=0; CONCURRENT_OTHER=0; WINNER_TOKEN=""
+CONCURRENT_WINNERS=0; CONCURRENT_BUSY=0; CONCURRENT_OTHER=0; WINNER_TOKEN=""; CONCURRENT_OTHER_DETAILS=""
 for n in 1 2 3 4 5 6 7 8; do
   RC="$(cat "$TMP/concurrent-orphan-$n.rc" 2>/dev/null || printf missing)"
   case "$RC" in
     0) CONCURRENT_WINNERS=$((CONCURRENT_WINNERS + 1)); WINNER_TOKEN="$(cat "$TMP/concurrent-orphan-$n.out")" ;;
     75) CONCURRENT_BUSY=$((CONCURRENT_BUSY + 1)) ;;
-    *) CONCURRENT_OTHER=$((CONCURRENT_OTHER + 1)) ;;
+    *)
+      CONCURRENT_OTHER=$((CONCURRENT_OTHER + 1))
+      DETAIL="$(tr '\r\n' '  ' < "$TMP/concurrent-orphan-$n.out" 2>/dev/null)"
+      CONCURRENT_OTHER_DETAILS="$CONCURRENT_OTHER_DETAILS contender=$n rc=$RC out='$DETAIL'"
+      ;;
   esac
 done
 EVENTUAL_OK=0
@@ -404,7 +438,7 @@ if [ "$EVENTUAL_OK" -eq 1 ] && [ ! -e "$LOCK.recovery" ] && \
    ! find "$TMP" -maxdepth 1 -name '.install.lock.recovery.reclaim.*' | grep -q .; then
   ok "concurrent orphan-claim cleanup is retryable and converges without fatal errors"
 else
-  bad "concurrent orphan cleanup produced a fatal race (win=$CONCURRENT_WINNERS busy=$CONCURRENT_BUSY other=$CONCURRENT_OTHER)"
+  bad "concurrent orphan cleanup produced a fatal race (win=$CONCURRENT_WINNERS busy=$CONCURRENT_BUSY other=$CONCURRENT_OTHER;$CONCURRENT_OTHER_DETAILS)"
   rm -f "$LOCK" "$LOCK.recovery" "$LOCK.recovery.reclaim."*
 fi
 

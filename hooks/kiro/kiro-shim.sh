@@ -47,11 +47,11 @@ configure_windows_native_tools() {
   case "${OSTYPE:-}" in
     msys*|cygwin*)
       case "${BASH:-}" in /*) ;; *) return 1 ;; esac
-      # Keep logical anchors raw in native Node while retaining normal MSYS
-      # argv conversion for script/executable paths.
+      # Keep bound raw and native anchor identities byte-exact in native Node
+      # while retaining normal MSYS argv conversion for untrusted child paths.
       local raw_name
       if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW; do
+        for raw_name in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW; do
           case ";${MSYS2_ENV_CONV_EXCL:-};" in
             *";$raw_name;"*) ;;
             *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$raw_name" ;;

@@ -25,7 +25,7 @@ CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS ZENSU_INSTALL_TEST_FAIL_TARGET; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS ZENSU_INSTALL_TEST_FAIL_TARGET; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -75,9 +75,9 @@ SHIM_WINDOWS_CONFIG="$(sed -n '/^configure_windows_native_tools() {$/,/^}$/p' "$
 RESOLVER_WINDOWS_CONFIG="$(sed -n '/^configure_windows_native_tools() {$/,/^}$/p' "$ROOT/hooks/lib/resolve-plugin-root.sh")"
 if [ -n "$INSTALL_WINDOWS_CONFIG" ] && [ "$INSTALL_WINDOWS_CONFIG" = "$SHIM_WINDOWS_CONFIG" ] && \
    [ "$INSTALL_WINDOWS_CONFIG" = "$RESOLVER_WINDOWS_CONFIG" ]; then
-  ok "Windows raw-anchor environment policy is identical in all entrypoints"
+  ok "Windows anchor environment policy is identical in all entrypoints"
 else
-  bad "Windows raw-anchor environment policy drifted between entrypoints"
+  bad "Windows anchor environment policy drifted between entrypoints"
 fi
 
 # Exercise the real production merger even on POSIX (where the later trusted
@@ -94,7 +94,7 @@ STAR_EXCL="$MSYS2_ENV_CONV_EXCL"
 MSYS2_ENV_CONV_EXCL='keep-one;keep-two'; configure_windows_native_tools >/dev/null 2>&1 || true
 configure_windows_native_tools >/dev/null 2>&1 || true
 LIST_EXCL="$MSYS2_ENV_CONV_EXCL"
-EXPECTED_EXCL='keep-one;keep-two;ZENSU_KIRO_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_RAW;ZENSU_KIRO_WORKSPACE_ANCHOR_RAW;ZENSU_KIRO_TEST_ANCHOR_RAW;ZENSU_KIRO_ROOT;ZENSU_KIRO_RENDER_HOME_RAW'
+EXPECTED_EXCL='keep-one;keep-two;ZENSU_KIRO_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_RAW;ZENSU_KIRO_HOME_ANCHOR_NATIVE;ZENSU_KIRO_WORKSPACE_ANCHOR_RAW;ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE;ZENSU_KIRO_TEST_ANCHOR_RAW;ZENSU_KIRO_TEST_ANCHOR_NATIVE;ZENSU_KIRO_ROOT;ZENSU_KIRO_RENDER_HOME_RAW'
 OSTYPE="$SAVED_OSTYPE"
 if [ -n "$SAVED_EXCL_SET" ]; then MSYS2_ENV_CONV_EXCL="$SAVED_EXCL"; export MSYS2_ENV_CONV_EXCL; else unset MSYS2_ENV_CONV_EXCL; fi
 if [ "$STAR_EXCL" = '*' ] && [ "$LIST_EXCL" = "$EXPECTED_EXCL" ]; then

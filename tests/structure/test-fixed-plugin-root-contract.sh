@@ -12,7 +12,7 @@ CYGPATH_POSIX=""
 case "${OSTYPE:-}" in
   msys*|cygwin*)
     if [ "${MSYS2_ENV_CONV_EXCL:-}" != "*" ]; then
-      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
+      for RAW_ENV_NAME in ZENSU_KIRO_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE ZENSU_KIRO_WORKSPACE_ANCHOR_RAW ZENSU_KIRO_WORKSPACE_ANCHOR_NATIVE ZENSU_KIRO_TEST_ANCHOR_RAW ZENSU_KIRO_TEST_ANCHOR_NATIVE ZENSU_KIRO_ROOT ZENSU_KIRO_RENDER_HOME_RAW ZENSU_KIRO_TEST_RAW_PATH ZENSU_KIRO_TEST_RAW_ALIAS; do
         case ";${MSYS2_ENV_CONV_EXCL:-};" in
           *";$RAW_ENV_NAME;"*) ;;
           *) MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}$RAW_ENV_NAME" ;;
@@ -33,6 +33,32 @@ ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
+create_directory_link() { # $1=target $2=link
+  local target="$1" link="$2" target_native link_native
+  if [ -n "$CYGPATH_POSIX" ]; then
+    target_native="$("$CYGPATH_POSIX" -am "$target")" || return 1
+    link_native="$("$CYGPATH_POSIX" -am "$link")" || return 1
+    node -e 'require("fs").symlinkSync(process.argv[1], process.argv[2], "junction")' "$target_native" "$link_native" >/dev/null 2>&1
+  else
+    ln -s "$target" "$link" 2>/dev/null
+  fi
+}
+native_node_sees_link() { node -e 'if (!require("fs").lstatSync(process.argv[1]).isSymbolicLink()) process.exit(1)' "$1" >/dev/null 2>&1; }
+remove_directory_link() { # $1=link $2=target
+  local link="$1" target="$2" link_native target_native
+  if [ -n "$CYGPATH_POSIX" ]; then
+    link_native="$("$CYGPATH_POSIX" -am "$link")" || return 1
+    target_native="$("$CYGPATH_POSIX" -am "$target")" || return 1
+    node -e '
+      const fs=require("fs"),link=process.argv[1],target=process.argv[2];
+      if (!fs.lstatSync(link).isSymbolicLink() || !fs.statSync(target).isDirectory()) process.exit(1);
+      fs.rmdirSync(link);
+      if (!fs.statSync(target).isDirectory()) process.exit(2);
+    ' "$link_native" "$target_native" >/dev/null 2>&1
+  else
+    rm -f "$link" && [ -d "$target" ]
+  fi
+}
 
 if [ -f "$RESOLVER_SRC" ] && bash -n "$RESOLVER_SRC" 2>/dev/null; then
   ok "K1 fixed-runtime resolver exists and parses"
@@ -406,7 +432,7 @@ ALIAS_MANIFEST_BYTES="$(cat "$RUNTIME/manifest.json")"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 if [ "$RC" -ne 0 ] && [ -f "$ALIAS_AGENT" ] && \
    [ "$(cat "$RUNTIME/manifest.json")" = "$ALIAS_MANIFEST_BYTES" ] && \
-   printf '%s' "$OUT" | grep -q 'manifest path is not canonical'; then
+   printf '%s' "$OUT" | grep -Eq 'manifest path (is not canonical|contains a non-canonical or Windows-aliased component)'; then
   ok "K13b non-canonical manifest aliases fail before runtime reconciliation"
 else
   bad "K13b aliased manifest provenance deleted or republished a canonical agent"
@@ -464,18 +490,25 @@ fi
 rm -f "$MALFORMED_OBSOLETE" "$RUNTIME/manifest.json"
 bash "$INSTALL" --scope user --no-default --force >/dev/null 2>&1
 
-ZLOG="$RUNTIME/hooks/lib/zensu-log.sh"; ZLOG_REAL="$TMP/zensu-log-real.sh"
-cp "$ZLOG" "$ZLOG_REAL"; rm "$ZLOG"
-if ln -s "$ZLOG_REAL" "$ZLOG" 2>/dev/null; then
-  if env HOME="$HOME" bash "$RESOLVER" 1 >/dev/null 2>&1; then
-    bad "K15 resolver accepted a symlinked critical helper"
+LIB_LINK="$RUNTIME/hooks/lib"; LIB_REAL="$TMP/zensu-lib-real"
+mv "$LIB_LINK" "$LIB_REAL"
+LIB_LINK_CREATED=0
+if create_directory_link "$LIB_REAL" "$LIB_LINK"; then
+  LIB_LINK_CREATED=1
+  if ! native_node_sees_link "$LIB_LINK"; then
+    bad "K15 link fixture is not visible to native Node"
+  elif env HOME="$HOME" bash "$RESOLVER" 1 >/dev/null 2>&1; then
+    bad "K15 resolver accepted a linked critical helper directory"
   else
-    ok "K15 resolver rejects a symlinked critical helper"
+    ok "K15 resolver rejects a linked critical helper directory"
   fi
 else
-  ok "K15 skipped: filesystem does not permit symlink fixture"
+  ok "K15 skipped: filesystem does not permit directory-link fixture"
 fi
-rm -f "$ZLOG"
+if [ "$LIB_LINK_CREATED" -eq 1 ]; then
+  remove_directory_link "$LIB_LINK" "$LIB_REAL" || { bad "K15 could not remove directory-link fixture safely"; exit 1; }
+fi
+mv "$LIB_REAL" "$LIB_LINK"
 bash "$INSTALL" --scope user --no-default --force >/dev/null 2>&1
 if [ "$(env HOME="$HOME" bash "$RUNTIME/hooks/lib/resolve-plugin-root.sh" 1 2>/dev/null)" = "$RUNTIME" ]; then
   ok "K16 isolated repairs restore a valid runtime"

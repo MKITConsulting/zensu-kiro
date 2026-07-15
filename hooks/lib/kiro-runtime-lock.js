@@ -347,7 +347,11 @@ function recoveryClaims(recoveryPath) {
       if (error && error.code === "ENOENT") continue;
       throw error;
     }
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.size <= 0 || stat.size > 4096) {
+    // publishLock creates a same-prefix .pending file before writing its bytes.
+    // A concurrent reader may observe that bounded regular file at size zero;
+    // let the parse/age branch below classify it as retryable initialization
+    // instead of turning a normal publication window into a fatal rc=3.
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 4096) {
       fail("install lock recovery claim is unsafe");
     }
     let bytes;
