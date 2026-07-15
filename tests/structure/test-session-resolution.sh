@@ -14,6 +14,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -25,10 +26,11 @@ unset CLAUDE_PROJECT_DIR CLAUDE_SESSION_ID 2>/dev/null || true
 mkdir -p "$TMP/home"
 export HOME="$TMP/home"
 SID="kiro-real-session-uuid-1234"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 
 # 1) agentSpawn capture-sid writes the project-scoped current-session file
-printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" session-start-capture-sid.sh >/dev/null 2>&1
+printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 session-start-capture-sid.sh >/dev/null 2>&1
 [ -f "$TMP/.zensu/state/session-id-current.txt" ] && ok "session-id-current.txt written" || bad "session-id-current.txt missing"
 [ "$(cat "$TMP/.zensu/state/session-id-current.txt" 2>/dev/null | tr -d '[:space:]')" = "$SID" ] && ok "current file carries the payload sid" || bad "current file content wrong"
 
@@ -41,7 +43,7 @@ printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT
 #    RED_FAIL seeded via the same path -> fs_write on prod denied
 ( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step s1 >/dev/null 2>&1 )
 ( cd "$TMP" && CLAUDE_PROJECT_DIR="$TMP" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step s1 --reason seeded >/dev/null 2>&1 )
-printf '{"tool_name":"fs_write","session_id":"%s","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >"$TMP/o" 2>"$TMP/e"
+printf '{"tool_name":"fs_write","session_id":"%s","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-edit-tdd-reminder.sh >"$TMP/o" 2>"$TMP/e"
 RC=$?
 [ "$RC" -eq 2 ] && ok "gate denies with shell-seeded state (end-to-end session match)" || bad "gate rc=$RC, expected 2 (session still mismatched)"
 
@@ -86,7 +88,7 @@ mv "$TMP/.zensu/state/session-id-current.txt.bak" "$TMP/.zensu/state/session-id-
 #    SYNTHESIZE a session id and still write the current file, so hooks and
 #    model-shell zensu-log calls converge on one state file.
 TMP2="$(mktemp -d)"  # cleaned by the EXIT trap
-printf '{"hook_event_name":"agentSpawn","cwd":"%s","prompt":"hi"}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" session-start-capture-sid.sh >/dev/null 2>&1
+printf '{"hook_event_name":"agentSpawn","cwd":"%s","prompt":"hi"}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 session-start-capture-sid.sh >/dev/null 2>&1
 CUR="$TMP2/.zensu/state/session-id-current.txt"
 [ -f "$CUR" ] && ok "no-sid payload: current file still written (synthesized)" || bad "no-sid payload: current file missing"
 SYN="$(cat "$CUR" 2>/dev/null | tr -d '[:space:]')"
@@ -94,7 +96,7 @@ printf '%s' "$SYN" | grep -qE '^[A-Za-z0-9_-]{8,}$' && ok "synthesized id is san
 ( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --tdd-begin >/dev/null 2>&1 )
 ( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_WRITE --step s1 >/dev/null 2>&1 )
 ( cd "$TMP2" && CLAUDE_PROJECT_DIR="$TMP2" bash "$ROOT/hooks/lib/zensu-log.sh" --phase RED_FAIL --step s1 --reason seeded >/dev/null 2>&1 )
-printf '{"hook_event_name":"preToolUse","tool_name":"fs_write","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh >/dev/null 2>"$TMP2/e"
+printf '{"hook_event_name":"preToolUse","tool_name":"fs_write","cwd":"%s","tool_input":{"command":"append","path":"src/app.js"}}' "$TMP2" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-edit-tdd-reminder.sh >/dev/null 2>"$TMP2/e"
 RC=$?
 [ "$RC" -eq 2 ] && ok "no-sid end-to-end: gate denies via synthesized session" || bad "no-sid gate rc=$RC, expected 2"
 

@@ -7,6 +7,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -20,14 +21,15 @@ mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
 export ZENSU_CONFIG="$TMP/no-such-config.json"
 SID="s08-witness"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 WITNESS="$TMP/.zensu/logs/witness-${SID}.log"
 
 mk_shell() { # $1=tool_name $2=session $3=cmd $4=exit $5=stdout
   printf '{"tool_name":"%s","session_id":"%s","cwd":"%s","tool_input":{"command":"%s"},"tool_response":{"exit_code":%s,"stdout":"%s"}}' "$1" "$2" "$TMP" "$3" "$4" "$5"
 }
-run_witness() { printf '%s' "$1" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1; }
+run_witness() { printf '%s' "$1" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 post-bash-witness.sh >/dev/null 2>&1; }
 
 # 0) inactive session -> no witness file
 run_witness "$(mk_shell execute_bash "$SID" "npm test" 0 "all green")"
@@ -49,12 +51,12 @@ grep -q 'exit=2' "$WITNESS" 2>/dev/null && ok "non-zero exit recorded" || bad "n
 
 # 2b) LIVE-VERIFIED Kiro response shape: tool_response = {success, result}
 #     (no exit_code/stdout keys) — the tail must come from `result`.
-printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"node --test"},"tool_response":{"success":true,"result":"tests 7 pass 7 fail 0"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"node --test"},"tool_response":{"success":true,"result":"tests 7 pass 7 fail 0"}}' "$SID" "$TMP" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 post-bash-witness.sh >/dev/null 2>&1
 grep -q 'tests 7 pass 7 fail 0' "$WITNESS" 2>/dev/null && ok "Kiro result-key tail recorded" || bad "Kiro result-key tail missing"
 
 # 2c) interrupted flag + 200-char tail truncation
 LONG="$(printf 'A%.0s' $(seq 1 300))"
-printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"long run"},"tool_response":{"exit_code":1,"stdout":"%s","interrupted":true}}' "$SID" "$TMP" "$LONG" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"long run"},"tool_response":{"exit_code":1,"stdout":"%s","interrupted":true}}' "$SID" "$TMP" "$LONG" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 post-bash-witness.sh >/dev/null 2>&1
 grep -q 'interrupted=true' "$WITNESS" 2>/dev/null && ok "interrupted=true recorded" || bad "interrupted=true missing"
 TAIL_LEN="$(grep 'cmd="long run"' "$WITNESS" | sed -n 's/.*tail="\([^"]*\)".*/\1/p' | head -1 | wc -c | tr -d '[:space:]')"
 [ "${TAIL_LEN:-999}" -le 210 ] && ok "tail truncated to <=200 chars (len=$TAIL_LEN)" || bad "tail not truncated (len=$TAIL_LEN)"
@@ -66,7 +68,7 @@ mkdir -p "$SLY" "$REALDIR"
 mkdir -p "$SLY/.zensu"
 ln -s "$REALDIR" "$SLY/.zensu/logs" 2>/dev/null || true
 if [ -L "$SLY/.zensu/logs" ]; then
-  printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"sneaky"},"tool_response":{"exit_code":0,"stdout":"x"}}' "$SID" "$SLY" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-bash-witness.sh >/dev/null 2>"$TMP/sly.err"
+  printf '{"tool_name":"shell","session_id":"%s","cwd":"%s","tool_input":{"command":"sneaky"},"tool_response":{"exit_code":0,"stdout":"x"}}' "$SID" "$SLY" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 post-bash-witness.sh >/dev/null 2>"$TMP/sly.err"
   grep -rq 'sneaky' "$REALDIR" 2>/dev/null && bad "witness wrote through symlinked logs dir" || ok "witness refuses symlinked logs dir"
   grep -q "refusing symlinked logs target" "$TMP/sly.err" && ok "symlink refusal announced on stderr" || bad "no refusal message on stderr"
 else
@@ -75,7 +77,7 @@ fi
 
 # 3) ZENSU_TEST_WITNESS=off silences
 LINES_BEFORE="$(wc -l < "$WITNESS" | tr -d '[:space:]')"
-printf '%s' "$(mk_shell shell "$SID" "echo skip" 0 "skip")" | env -u ZENSU_PLUGIN_ROOT ZENSU_TEST_WITNESS=off bash "$SHIM" post-bash-witness.sh >/dev/null 2>&1
+printf '%s' "$(mk_shell shell "$SID" "echo skip" 0 "skip")" | env -u ZENSU_PLUGIN_ROOT ZENSU_TEST_WITNESS=off bash "$SHIM" 1 post-bash-witness.sh >/dev/null 2>&1
 LINES_AFTER="$(wc -l < "$WITNESS" | tr -d '[:space:]')"
 [ "$LINES_BEFORE" = "$LINES_AFTER" ] && ok "ZENSU_TEST_WITNESS=off silences" || bad "witness wrote despite off"
 

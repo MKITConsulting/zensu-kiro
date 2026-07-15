@@ -67,10 +67,10 @@ tests:
       - type: javascript
         value: file://asserts/fsm-sequence.mjs
 
-  - description: "B6 pulse/plugin-root — session leaves the runtime pointer in place"
+  - description: "B6 fixed runtime — installed VERSION and critical helper hashes agree with the manifest"
     vars:
       q: "Reply with exactly: DONE."
       scenario: b6-pulse
     assert:
       - type: javascript
-        value: file://asserts/plugin-root.mjs
+        value: file://asserts/fixed-runtime.mjs

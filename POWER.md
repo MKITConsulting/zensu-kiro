@@ -40,8 +40,10 @@ CLI, installed separately (`curl -fsSL https://zensu.dev/install.sh | sh`, then
    The plugin drives all Zensu data access through this CLI.
 2. From the Power checkout directory run:
    `bash install.sh --scope user --no-default`
-   — installs the skills, subagents, and the hook runtime to `~/.kiro/` (IDE
-   and CLI share these surfaces).
+   — installs the skills, subagents, and the fixed, manifest-validated hook
+   runtime to `$HOME/.kiro/zensu` (IDE and CLI share these surfaces). User- and
+   workspace-scoped installs share that Kiro-owned runtime; legacy shared root
+   locators are ignored and preserved.
 3. Optional, Kiro CLI: `kiro-cli agent set-default zensu` — enables the
    enforced tier (TDD phase-gate, CLI write-gate, witness, stop chain-enforcer)
    in every CLI session.

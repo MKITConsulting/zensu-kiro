@@ -3,11 +3,12 @@
 # banner: user-facing, must report the version from the repo VERSION file and
 #         advertise /zensu-x slash skills (no Codex $zensu-x syntax).
 # primer: model-facing additionalContext -> plain stdout via shim, /zensu-x names.
-# pulse:  must persist the plugin root to ~/.zensu/plugin-root (skills depend on it).
+# pulse:  must leave legacy shared locator state untouched.
 # capture-sid: must cache the payload session_id under <cwd>/.zensu/state/.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -18,12 +19,15 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home"
 export HOME="$TMP/home"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+mkdir -p "$HOME/.zensu"
+printf '%s\n' '/tmp/legacy-pointer-must-survive' > "$HOME/.zensu/plugin-root"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 VERSION="$(cat "$ROOT/VERSION")"
 SID="s09-spawn"
 
 payload() { printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP"; }
-run_hook() { printf '%s' "$(payload)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" "$1" 2>/dev/null; }
+run_hook() { printf '%s' "$(payload)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 "$1" 2>/dev/null; }
 
 # 1) banner
 OUT="$(run_hook session-start-banner.sh)"
@@ -38,10 +42,9 @@ printf '%s' "$OUT" | grep -q "hookSpecificOutput" && bad "primer output still JS
 printf '%s' "$OUT" | grep -q "/zensu-tdd" && ok "primer names /zensu-tdd" || bad "primer lacks /zensu-tdd"
 printf '%s' "$OUT" | grep -q '\$zensu-' && bad "primer still uses Codex \$zensu- syntax" || ok "primer free of \$zensu- syntax"
 
-# 3) pulse persists plugin-root
+# 3) pulse leaves legacy shared locator state untouched
 run_hook session-start-pulse.sh >/dev/null
-[ -f "$HOME/.zensu/plugin-root" ] && ok "plugin-root written" || bad "plugin-root missing"
-[ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = "$ROOT" ] && ok "plugin-root points at repo root" || bad "plugin-root content: $(cat "$HOME/.zensu/plugin-root" 2>/dev/null)"
+[ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = '/tmp/legacy-pointer-must-survive' ] && ok "pulse preserves legacy locator" || bad "pulse rewrote legacy locator"
 
 # 4) capture-sid caches the session id under <cwd>/.zensu/state/
 run_hook session-start-capture-sid.sh >/dev/null

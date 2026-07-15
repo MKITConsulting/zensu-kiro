@@ -7,8 +7,9 @@
 // `install.sh --scope user --no-default` (idempotent; installing the plugin
 // is the port's end state anyway) and isolates each test in a throwaway
 // project cwd. Project-local artifacts (.zensu state/logs, payload dumps)
-// are copied to .artifacts/<test label>; ~/.zensu/plugin-root is captured
-// for the B6 assert. Variant agents (zensu-dump) land in the real
+// are copied to .artifacts/<test label>; the fixed Kiro runtime's VERSION,
+// manifest, and critical helpers are captured for the B6 integrity assert.
+// Variant agents (zensu-dump) land in the real
 // ~/.kiro/agents — the runner removes them after the suite.
 // Auth: the developer's logged-in kiro-cli session or KIRO_API_KEY.
 import { execFileSync, execFile } from "node:child_process";
@@ -16,6 +17,7 @@ import { mkdtempSync, mkdirSync, cpSync, existsSync, writeFileSync, rmSync } fro
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RUNTIME_FILES } from "../fixed-runtime-closure.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PF_ROOT = resolve(HERE, "..");          // tests/promptfoo
@@ -93,7 +95,11 @@ export default class KiroCliProvider {
       [join(cwd, ".zensu-dump"), join(artifacts, "dump")],
       [join(cwd, "src"), join(artifacts, "project", "src")],
       [join(cwd, "test"), join(artifacts, "project", "test")],
-      [join(home, ".zensu", "plugin-root"), join(artifacts, "home-zensu", "plugin-root")],
+      [join(home, ".kiro", "zensu", "manifest.json"), join(artifacts, "home-kiro", "zensu", "manifest.json")],
+      ...RUNTIME_FILES.map(rel => [
+        join(home, ".kiro", "zensu", ...rel.split("/")),
+        join(artifacts, "home-kiro", "zensu", ...rel.split("/")),
+      ]),
     ]) {
       if (existsSync(src)) cpSync(src, dst, { recursive: true });
     }

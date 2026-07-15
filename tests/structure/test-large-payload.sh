@@ -10,6 +10,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -22,7 +23,8 @@ unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
 SID="f02-large"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 
 BIG="$TMP/big.json"
@@ -42,7 +44,7 @@ ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --phase RED_WRITE --step s1 --session "$SI
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --phase RED_FAIL --step s1 --session "$SID" >/dev/null 2>&1
 
 # 1) TDD gate must still DENY a 3 MiB prod write in RED_FAIL
-env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-edit-tdd-reminder.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
+env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-edit-tdd-reminder.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
 RC=$?
 [ "$RC" -eq 2 ] && ok "TDD gate denies 3MiB prod write" || bad "TDD gate rc=$RC on 3MiB payload (expected 2) — large-payload bypass"
 
@@ -57,7 +59,7 @@ node -e '
     tool_input: { command: "zensu features create --name X --description " + filler }
   }));
 ' "$BIG" "$TMP"
-env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-bash-zensu-gate.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
+env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 pre-bash-zensu-gate.sh < "$BIG" >"$TMP/o" 2>"$TMP/e"
 RC=$?
 [ "$RC" -eq 2 ] && ok "CLI gate denies 3MiB mutation command" || bad "CLI gate rc=$RC on 3MiB payload (expected 2) — large-payload bypass"
 
@@ -72,7 +74,7 @@ node -e '
     last_response: filler
   }));
 ' "$BIG" "$TMP"
-OUT="$(env -u ZENSU_PLUGIN_ROOT bash "$SHIM" stop-chain-enforcer.sh < "$BIG" 2>/dev/null)"
+OUT="$(env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 stop-chain-enforcer.sh < "$BIG" 2>/dev/null)"
 printf '%s' "$OUT" | grep -q '"decision":"block"' && ok "stop enforcer blocks with 3MiB payload" || bad "stop enforcer silent on 3MiB payload — large-payload bypass"
 
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"

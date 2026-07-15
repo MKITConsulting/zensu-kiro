@@ -8,6 +8,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -20,11 +21,12 @@ unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
 SID="s07-stop"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 
 payload() { printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$TMP"; }
-run_stop() { printf '%s' "$(payload)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" stop-chain-enforcer.sh 2>/dev/null; }
+run_stop() { printf '%s' "$(payload)" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 stop-chain-enforcer.sh 2>/dev/null; }
 
 # 0) inactive session -> silent allow
 OUT="$(run_stop)"; RC=$?

@@ -6,6 +6,40 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **runtime**: Treat `$HOME/.kiro/zensu` as Kiro's fixed plugin runtime and
+  resolve it through a fail-closed validator that checks `VERSION`, scope
+  protocol, the install manifest, and the complete declarative hook closure
+  before model-issued commands or automatic hooks run.
+- **installer**: Structurally render agent JSON and shell-escape hook paths
+  (including hostile-but-valid HOME characters), reject control-character
+  bases and symlinked path components, publish files/manifests atomically, and
+  serialize the full runtime transaction with one HOME-wide token lock. File
+  replacement/removal now atomically claims expected bytes and restores or
+  preserves them on concurrent editor races. Claims are self-describing crash
+  journals recovered before the next preflight, and obsolete unmodified runtime
+  files are removed from the prior manifest before the new one is published.
+- **runtime**: Share the installer lock with automatic hook dispatch, revalidate
+  the complete runtime snapshot before returning it, and serialize stale-lock
+  recovery with visible unique election claims that survive claimant crashes
+  without moving the canonical recovery guard. Security/TDD preToolUse hooks now deny
+  while the runtime is corrupt or being upgraded; lifecycle hooks remain
+  fail-open.
+- **installer safety**: Refuse to replace a malformed prior manifest even with
+  `--force`, because unknown obsolete hooks cannot be reconciled safely without
+  trustworthy inventory provenance.
+- **versioning**: Compare prerelease identifiers with SemVer precedence, refuse
+  replacing a newer installed runtime unless `--force` is explicit, and keep
+  safe uninstall available across version drift without weakening schema or
+  path validation.
+
+### Fixed
+
+- **isolation**: Stop installer and `agentSpawn` hooks from reading or rewriting
+  the legacy shared plugin-root locator, preventing other hosts and worktrees
+  from redirecting Kiro's runtime.
+
 ## [0.2.0] - 2026-06-27
 
 ### Added

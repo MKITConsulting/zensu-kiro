@@ -8,6 +8,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/structure/lib/kiro-runtime-fixture.sh"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$*"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
@@ -20,12 +21,13 @@ unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TMP/home" "$TDD_STATE_DIR"
 export HOME="$TMP/home"
 SID="s10-delegate"
-SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
+zensu_prepare_kiro_runtime_fixture "$ROOT" "$HOME" || exit 1
+SHIM="$ZENSU_KIRO_FIXTURE_SHIM"
 
 mk_subagent() { # $1=agent name
   printf '{"tool_name":"subagent","session_id":"%s","cwd":"%s","tool_input":{"agent":"%s","prompt":"PRE-MERGED FINDINGS (fan-out): 1. src/x.js:3 bug"},"tool_response":{"output":"report done"}}' "$SID" "$TMP" "$1"
 }
-run_hook() { printf '%s' "$1" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" post-review-tdd-delegate.sh 2>/dev/null; }
+run_hook() { printf '%s' "$1" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" 1 post-review-tdd-delegate.sh 2>/dev/null; }
 
 # 1) fires when the spawned agent is zensu-code-reviewer (tolerant tool_input scan)
 OUT="$(run_hook "$(mk_subagent zensu-code-reviewer)")"
