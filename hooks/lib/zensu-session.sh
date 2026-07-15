@@ -22,7 +22,10 @@ zensu_resolve_session_via_helper() {
   [ -f "$helper" ] || return 1
   command -v node >/dev/null 2>&1 || return 1
   local out
-  out="$(node "$helper" "${ZENSU_BASH_START:-}" 2>/dev/null)"
+  # Stream the installed helper so Git Bash cannot reinterpret a semicolon in
+  # the plugin-root script path as an MSYS argv path list. The explicit '-'
+  # keeps the cutoff at process.argv[2], matching normal script execution.
+  out="$(node - "${ZENSU_BASH_START:-}" < "$helper" 2>/dev/null)"
   out="${out//$'\n'/}"
   out="${out//$'\r'/}"
   if [ -n "$out" ]; then

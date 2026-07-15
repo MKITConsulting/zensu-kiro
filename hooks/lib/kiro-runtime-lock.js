@@ -14,6 +14,25 @@ class RuntimeLockError extends Error {
   constructor(message, exitCode = 3) { super(message); this.exitCode = exitCode; }
 }
 const fail = (message, exitCode = 3) => { throw new RuntimeLockError(message, exitCode); };
+// Windows can transiently deny metadata/content access while another
+// contender is publishing or reclaiming the same short-lived claim. Treat
+// that sharing violation as retryable contention, but never as absence: the
+// claim remains part of the fail-closed election until it can be inspected.
+const isWindowsClaimContention = error => error &&
+  (process.platform === "win32" || (process.env.NODE_ENV === "test" && error.zensuInjectedWindowsClaimContention === true)) &&
+  (error.code === "EPERM" || error.code === "EACCES" || error.code === "EBUSY");
+const failWindowsClaimContention = (error, action) => {
+  if (isWindowsClaimContention(error)) fail(`install lock recovery claim is busy during ${action}`, 75);
+};
+const testRecoveryClaimReadFault = claimPath => {
+  if (process.env.NODE_ENV !== "test") return;
+  const token = process.env.ZENSU_INSTALL_TEST_RECOVERY_CLAIM_READ_EPERM_TOKEN || "";
+  if (!/^[a-f0-9]{64}$/.test(token) || !claimPath.endsWith(`.recovery.reclaim.${token}`)) return;
+  const error = new Error("injected Windows recovery-claim read contention");
+  error.code = "EPERM";
+  error.zensuInjectedWindowsClaimContention = true;
+  throw error;
+};
 const exists = target => {
   try { fs.lstatSync(target); return true; }
   catch (error) { if (error && error.code === "ENOENT") return false; throw error; }
@@ -310,6 +329,7 @@ function removeClaimSnapshot(claimPath, snapshot) {
   try { stat = fs.lstatSync(claimPath); }
   catch (error) {
     if (error && error.code === "ENOENT") return false;
+    failWindowsClaimContention(error, "cleanup inspection");
     throw error;
   }
   if (stat.isSymbolicLink() || !stat.isFile() || !snapshot.stat ||
@@ -318,12 +338,14 @@ function removeClaimSnapshot(claimPath, snapshot) {
   try { bytes = fs.readFileSync(claimPath); }
   catch (error) {
     if (error && error.code === "ENOENT") return false;
+    failWindowsClaimContention(error, "cleanup read");
     throw error;
   }
   if (!Buffer.isBuffer(snapshot.bytes) || !bytes.equals(snapshot.bytes)) fail("recovery claim changed during cleanup");
   try { fs.unlinkSync(claimPath); }
   catch (error) {
     if (error && error.code === "ENOENT") return false;
+    failWindowsClaimContention(error, "cleanup removal");
     throw error;
   }
   return true;
@@ -345,6 +367,7 @@ function recoveryClaims(recoveryPath) {
       // contender removing the same orphan between readdir and lstat is a
       // successful cleanup race, not an internal failure.
       if (error && error.code === "ENOENT") continue;
+      failWindowsClaimContention(error, "inspection");
       throw error;
     }
     // publishLock creates a same-prefix .pending file before writing its bytes.
@@ -355,9 +378,13 @@ function recoveryClaims(recoveryPath) {
       fail("install lock recovery claim is unsafe");
     }
     let bytes;
-    try { bytes = fs.readFileSync(claimPath); }
+    try {
+      testRecoveryClaimReadFault(claimPath);
+      bytes = fs.readFileSync(claimPath);
+    }
     catch (error) {
       if (error && error.code === "ENOENT") continue;
+      failWindowsClaimContention(error, "read");
       throw error;
     }
     const claim = parseRecoveryClaim(bytes, token);

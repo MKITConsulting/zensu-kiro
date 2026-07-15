@@ -47,7 +47,11 @@ configure_windows_native_tools || {
 NATIVE_ANCHOR_HELPER="$ROOT/hooks/lib/resolve-native-anchor.js"
 [ -f "$NATIVE_ANCHOR_HELPER" ] || { echo "FATAL: native anchor resolver is missing" >&2; exit 1; }
 ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
-ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || {
+# Keep the installed helper path out of native Node's argv. Git Bash treats a
+# semicolon in an otherwise valid HOME as a path-list separator during MSYS
+# argv conversion; stdin preserves the helper bytes without weakening path
+# validation of the HOME value itself.
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node < "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || {
   echo "FATAL: HOME native anchor resolution failed" >&2; exit 1;
 }
 export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE

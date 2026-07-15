@@ -111,6 +111,23 @@ export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
 [ -f "$INSTALL" ] || { bad "install.sh missing"; printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"; exit 1; }
 bash -n "$INSTALL" && ok "install.sh parses (bash -n)" || bad "install.sh has a syntax error"
 
+# Native Node must never receive an installed helper path as argv: under Git
+# Bash a valid semicolon-bearing HOME is otherwise treated as an MSYS path
+# list. Runtime-lock argv conversion is suppressed only for the command whose
+# script path has already been rebound to the verified native HOME.
+if grep -Fq 'node < "$NATIVE_ANCHOR_HELPER"' "$INSTALL" && \
+   grep -Fq 'node < "$NATIVE_ANCHOR_HELPER"' "$ROOT/hooks/lib/resolve-plugin-root.sh" && \
+   grep -Fq 'node < "$NATIVE_ANCHOR_HELPER"' "$ROOT/hooks/kiro/kiro-shim.sh" && \
+   ! grep -Fq 'node "$NATIVE_ANCHOR_HELPER"' "$INSTALL" && \
+   ! grep -Fq 'node "$NATIVE_ANCHOR_HELPER"' "$ROOT/hooks/lib/resolve-plugin-root.sh" && \
+   ! grep -Fq 'node "$NATIVE_ANCHOR_HELPER"' "$ROOT/hooks/kiro/kiro-shim.sh" && \
+   grep -Fq "MSYS2_ARG_CONV_EXCL='*' node \"\$LOCK_HELPER_NATIVE\"" "$ROOT/hooks/kiro/kiro-shim.sh" && \
+   grep -Fq 'node - "${ZENSU_BASH_START:-}" < "$helper"' "$ROOT/hooks/lib/zensu-session.sh"; then
+  ok "installed Node helpers avoid hostile-HOME argv conversion"
+else
+  bad "installed Node helper transport reintroduced MSYS argv conversion"
+fi
+
 # Anchor canonicality is a pre-mutation invariant. In particular, a HOME that
 # reaches the same directory through `..` must not publish files and then fail
 # only when the manifest rejects its raw spelling.
@@ -371,13 +388,103 @@ EVIL_BASE="$TMP/hostile-home-case"; mkdir -p "$EVIL_BASE"
 EVIL_HOME="$EVIL_BASE/home \$dollar \$(touch PWNED_DOLLAR) \`touch PWNED_TICK\` quote' semi; amp&"
 mkdir -p "$EVIL_HOME"
 OUT="$(cd "$EVIL_BASE" && HOME="$EVIL_HOME" bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && ok "hostile-but-valid HOME installs successfully" || bad "hostile HOME install rc=$RC: $OUT"
+if [ "$RC" -eq 0 ]; then
+  ok "hostile-but-valid HOME installs successfully"
+else
+  # Keep this failure useful without echoing an attacker-controlled HOME or
+  # unbounded subprocess output into CI. Once the installer trap has released
+  # its lock, invoke the installed resolver directly and report only controlled
+  # classifications. Also distinguish a byte-identical installed resolver
+  # from a partial/corrupt copy and statically identify its helper transport.
+  EVIL_RESOLVER="$EVIL_HOME/.kiro/zensu/hooks/lib/resolve-plugin-root.sh"
+  DIRECT_RC=127
+  DIRECT_DIAG="resolver-missing"
+  STATIC_DIAG="resolver-missing"
+  COPY_DIAG="resolver-missing"
+  if [ -f "$EVIL_RESOLVER" ]; then
+    cmp -s "$ROOT/hooks/lib/resolve-plugin-root.sh" "$EVIL_RESOLVER" && COPY_DIAG="source-identical" || COPY_DIAG="source-different"
+    if grep -Fq 'node < "$NATIVE_ANCHOR_HELPER"' "$EVIL_RESOLVER"; then
+      STATIC_DIAG="helper-via-stdin"
+    elif grep -Fq 'node "$NATIVE_ANCHOR_HELPER"' "$EVIL_RESOLVER"; then
+      STATIC_DIAG="helper-via-argv"
+    else
+      STATIC_DIAG="helper-transport-unknown"
+    fi
+    HOME="$EVIL_HOME" bash "$EVIL_RESOLVER" 1 > "$TMP/hostile-resolver.out" 2> "$TMP/hostile-resolver.err"; DIRECT_RC=$?
+    if [ "$DIRECT_RC" -eq 0 ]; then
+      [ "$(cat "$TMP/hostile-resolver.out")" = "$EVIL_HOME/.kiro/zensu" ] \
+        && DIRECT_DIAG="success-expected-root" || DIRECT_DIAG="success-unexpected-root"
+    else
+      DIRECT_DIAG="$(node - "$TMP/hostile-resolver.err" <<'NODE'
+const crypto = require("crypto");
+const fs = require("fs");
+const file = process.argv[2];
+let size = 0;
+let bytes = Buffer.alloc(0);
+try {
+  size = fs.statSync(file).size;
+  const fd = fs.openSync(file, "r");
+  bytes = Buffer.alloc(Math.min(size, 4096));
+  fs.readSync(fd, bytes, 0, bytes.length, 0);
+  fs.closeSync(fd);
+} catch (_) {}
+const text = bytes.toString("utf8");
+const categories = [
+  ["home-anchor-resolution", /HOME native anchor resolution failed/],
+  ["trusted-git-bash-tools", /trusted Git Bash path tools are unavailable/],
+  ["anchor-helper-missing", /native anchor resolver is missing/],
+  ["runtime-lock", /install lock|recovery claim/i],
+  ["runtime-manifest", /manifest|hash mismatch|runtime component/i],
+  ["runtime-version-protocol", /VERSION|protocol/i],
+  ["fixed-root", /fixed root/i],
+  ["anchor-validation", /anchor/i]
+];
+const match = categories.find(([, pattern]) => pattern.test(text));
+const digest = crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 12);
+process.stdout.write(match ? match[0] : `unclassified-${size}b-${digest}`);
+NODE
+)"
+    fi
+  fi
+  bad "hostile HOME install rc=$RC; installed=$COPY_DIAG; static=$STATIC_DIAG; direct-resolver-rc=$DIRECT_RC; direct=$DIRECT_DIAG"
+fi
 EVIL_AGENT="$EVIL_HOME/.kiro/agents/zensu.json"
 if node -e 'JSON.parse(require("fs").readFileSync(0,"utf8"))' < "$EVIL_AGENT" 2>/dev/null; then
   ok "rendered agent remains valid JSON for hostile HOME"
 else
   bad "raw HOME interpolation corrupted rendered agent JSON"
 fi
+
+# A successful install must leave an actually dispatchable runtime, not merely
+# valid rendered JSON. This exercises both the streamed native-anchor helper
+# and the shim's scoped native lock-helper invocation from the hostile path.
+HOSTILE_SHIM_OUT="$(printf '{}\n' | HOME="$EVIL_HOME" bash "$EVIL_HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" 1 session-start-banner.sh 2>/dev/null)"; HOSTILE_SHIM_RC=$?
+if [ "$HOSTILE_SHIM_RC" -eq 0 ] && printf '%s' "$HOSTILE_SHIM_OUT" | grep -Fq 'zensu: Zensu PLM v'; then
+  ok "hostile HOME runtime dispatches through the installed shim"
+else
+  bad "hostile HOME runtime installed but its shim was unavailable"
+fi
+
+# The session resolver is another installed JavaScript helper. Verify its
+# stdin transport preserves process.argv[2] while the plugin root contains the
+# same hostile-but-valid characters.
+HOSTILE_PROJECTS="$TMP/hostile-session-projects"
+mkdir -p "$HOSTILE_PROJECTS/hostile-session-project"
+printf '{"session":"fixture"}\n' > "$HOSTILE_PROJECTS/hostile-session-project/hostile-helper-session.jsonl"
+HOSTILE_SESSION="$(
+  export CLAUDE_PLUGIN_ROOT="$EVIL_HOME/.kiro/zensu"
+  export CLAUDE_PROJECT_DIR="hostile-session-project"
+  export ZENSU_PROJECTS_DIR="$HOSTILE_PROJECTS"
+  export ZENSU_BASH_START="9999999999999999999"
+  . "$EVIL_HOME/.kiro/zensu/hooks/lib/zensu-session.sh"
+  zensu_resolve_session_via_helper
+)"
+if [ "$HOSTILE_SESSION" = "hostile-helper-session" ]; then
+  ok "hostile HOME session helper runs without an installed script argv"
+else
+  bad "hostile HOME session helper was unavailable"
+fi
+
 CMD="$(node -e '
   const j=JSON.parse(require("fs").readFileSync(0,"utf8"));
   const hook=Object.values(j.hooks||{}).flat().find(x=>x&&typeof x.command==="string");

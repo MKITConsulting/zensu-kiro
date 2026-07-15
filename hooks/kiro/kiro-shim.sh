@@ -77,7 +77,9 @@ NATIVE_PID_HELPER="$ROOT/hooks/lib/capture-native-shell-pid.sh"
 [ -f "$NATIVE_PID_HELPER" ] || runtime_unavailable
 . "$NATIVE_PID_HELPER"
 ZENSU_KIRO_HOME_ANCHOR_RAW="${HOME:-}"
-ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || runtime_unavailable
+# Avoid MSYS argv path-list conversion when the fixed runtime lives below a
+# valid HOME containing a semicolon. The helper consumes no command arguments.
+ZENSU_KIRO_HOME_ANCHOR_NATIVE="$(ZENSU_KIRO_ANCHOR_RAW="$ZENSU_KIRO_HOME_ANCHOR_RAW" node < "$NATIVE_ANCHOR_HELPER" 2>/dev/null)" || runtime_unavailable
 export ZENSU_KIRO_HOME_ANCHOR_RAW ZENSU_KIRO_HOME_ANCHOR_NATIVE
 LOCK_HELPER="$ROOT/hooks/lib/kiro-runtime-lock.js"
 LOCK_PATH="$HOME/.zensu-kiro-install.lock"
@@ -91,9 +93,23 @@ rm -f "$LOCK_PID_FILE" 2>/dev/null || true
 case "$LOCK_OWNER_PID" in ''|*[!0-9]*) runtime_unavailable ;; esac
 LOCK_TOKEN=""
 [ -f "$LOCK_HELPER" ] || runtime_unavailable
+# The installed lock helper has the same hostile-HOME argv hazard as the
+# native-anchor helper. Keep its CommonJS `require.main` CLI semantics by
+# binding the script path to the already-verified native HOME, then suppress
+# MSYS conversion for this one native Node command and its raw lock arguments.
+LOCK_HELPER_NATIVE="$LOCK_HELPER"
+case "${OSTYPE:-}" in
+  msys*|cygwin*) LOCK_HELPER_NATIVE="${ZENSU_KIRO_HOME_ANCHOR_NATIVE%[\\/]}/.kiro/zensu/hooks/lib/kiro-runtime-lock.js" ;;
+esac
+run_runtime_lock() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*) MSYS2_ARG_CONV_EXCL='*' node "$LOCK_HELPER_NATIVE" "$@" ;;
+    *) node "$LOCK_HELPER" "$@" ;;
+  esac
+}
 LOCK_ATTEMPT=0
 while [ "$LOCK_ATTEMPT" -lt 100 ]; do
-  LOCK_RESULT="$(node "$LOCK_HELPER" acquire "$HOME" "$LOCK_PATH" "$LOCK_OWNER_PID" 2>/dev/null)"; LOCK_RC=$?
+  LOCK_RESULT="$(run_runtime_lock acquire "$HOME" "$LOCK_PATH" "$LOCK_OWNER_PID" 2>/dev/null)"; LOCK_RC=$?
   if [ "$LOCK_RC" -eq 0 ]; then LOCK_TOKEN="$LOCK_RESULT"; break; fi
   [ "$LOCK_RC" -eq 75 ] || runtime_unavailable
   LOCK_ATTEMPT=$((LOCK_ATTEMPT + 1))
@@ -102,7 +118,7 @@ done
 [ -n "$LOCK_TOKEN" ] || runtime_unavailable
 release_runtime_lock() {
   [ -n "$LOCK_TOKEN" ] || return 0
-  node "$LOCK_HELPER" release "$HOME" "$LOCK_PATH" "$LOCK_OWNER_PID" "$LOCK_TOKEN" >/dev/null 2>&1 || return 1
+  run_runtime_lock release "$HOME" "$LOCK_PATH" "$LOCK_OWNER_PID" "$LOCK_TOKEN" >/dev/null 2>&1 || return 1
   LOCK_TOKEN=""
 }
 trap 'release_runtime_lock >/dev/null 2>&1 || true' EXIT

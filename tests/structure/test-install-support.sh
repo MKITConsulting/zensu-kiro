@@ -306,6 +306,23 @@ node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$(printf '0%.0s' {1..64}
 [ "$RC" -ne 0 ] && [ -f "$LOCK" ] && [ ! -L "$LOCK" ] && ok "wrong token cannot release a lock" || bad "wrong token released a lock"
 node "$HELPER" release-lock "$TMP" "$LOCK" "$LIVE_PID" "$TOKEN" >/dev/null 2>&1
 
+# Native Windows can transiently return EPERM while another contender is
+# opening a recovery claim that is concurrently being reclaimed. Inject that
+# exact claim-specific read failure deterministically: it must remain visible
+# and be reported as retryable busy (75), never ignored or surfaced as rc=3.
+FAULT_CLAIM_TOKEN="$(printf '8%.0s' {1..64})"
+FAULT_CLAIM="$LOCK.recovery.reclaim.$FAULT_CLAIM_TOKEN"
+printf '{"schemaVersion":1,"pid":%s,"token":"%s","createdAt":"2026-01-01T00:00:00.000Z","targetFingerprint":"fault-fixture"}\n' \
+  "$LIVE_PID" "$FAULT_CLAIM_TOKEN" > "$FAULT_CLAIM"
+FAULT_OUT="$(NODE_ENV=test ZENSU_INSTALL_TEST_RECOVERY_CLAIM_READ_EPERM_TOKEN="$FAULT_CLAIM_TOKEN" \
+  node "$HELPER" acquire-lock "$TMP" "$LOCK" "$LIVE_PID" 2>&1)"; RC=$?
+if [ "$RC" -eq 75 ] && [ -f "$FAULT_CLAIM" ] && printf '%s' "$FAULT_OUT" | grep -Fq 'recovery claim is busy during read'; then
+  ok "Windows EPERM while reading a recovery claim is retryable and fail-closed"
+else
+  bad "claim-read EPERM was ignored, fatal, or destructive (rc=$RC)"
+fi
+rm -f "$FAULT_CLAIM"
+
 # Recovery-claim publication uses a same-prefix pending file. A fresh empty
 # pending file is first-class busy state; once genuinely stale, it is removed
 # by snapshot identity and normal acquisition can continue.
