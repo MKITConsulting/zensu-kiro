@@ -231,7 +231,7 @@ markers.
 | Session identity | payloads carry **no `session_id`** (live-verified) — convergence via the project-scoped `.zensu/state/session-id-current.txt` written at `agentSpawn` (pinned by `test-session-resolution.sh`) | same |
 | Context-compaction nudge | wired but **inert** (Claude-transcript-shaped payload) | n/a |
 | Session banner/primer | **FULL ✓ live-verified** (`agentSpawn`; payload keys `hook_event_name`/`cwd`/`prompt`, fires on every spawn) | n/a |
-| Pulse session telemetry | **FULL ✓ live-verified (B6)** (plugin-root + `zensu pulse` CLI commands) | **FULL** |
+| Pulse session telemetry | **FULL** — plugin-root persistence is live-verified (B6); the `zensu pulse` minimal-output/privacy no-op and context-only startup contracts are deterministically verified by the structure suite | **FULL** |
 
 Verified against kiro-cli **2.6.1** (2026-06-10): diagnostics suite (D1–D4, D6)
 5/5, behavior suite B1–B3+B6 green, and the [slow] B5 full-TDD live run green (RED_FAIL→IMPL→GREEN_PASS in the FSM state, 18 witness-recorded shell commands) — `tests/promptfoo/results/`. Re-run
@@ -252,6 +252,10 @@ shared schema with the Claude Code and Codex ports): `hooks.*` toggles
 `logging.timestampStyle` (`wall|relative|none`). Env escape hatches:
 `ZENSU_TDD_GATE=off`, `ZENSU_MCP_GATE=off`, `ZENSU_CHAIN=off`,
 `ZENSU_TEST_WITNESS=off`.
+
+`hooks.pulseSession` controls only Kiro's local startup context. It never overrides
+the server-side Pulse privacy setting; a disabled account produces a successful
+no-op and no session ID is retained.
 
 `hooks.tddImplementation:false` switches `/zensu-tdd` to **vanilla
 implementation mode**: no RED→GREEN ceremony, no FSM phase markers, the
