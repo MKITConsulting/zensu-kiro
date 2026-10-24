@@ -23,8 +23,9 @@ SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 
 payload() { # $1=command  $2=session(optional)
-  CMD="$1" SID="${2:-$SID}" CWD="$TMP" node -e '
+  CMD="$1" SID="${2:-$SID}" AT="${3:-}" CWD="$TMP" node -e '
     process.stdout.write(JSON.stringify({
+      ...(process.env.AT ? { agent_type: process.env.AT } : {}),
       tool_name: "shell",
       session_id: process.env.SID,
       cwd: process.env.CWD,
@@ -36,7 +37,7 @@ payload() { # $1=command  $2=session(optional)
 # gate <label> <command> <expected-rc> [session]
 gate() { # expected-rc: 2 = DENY, 0 = ALLOW
   local label="$1" cmd="$2" exp="$3" sid="${4:-$SID}" rc
-  payload "$cmd" "$sid" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-bash-zensu-gate.sh >/dev/null 2>&1
+  payload "$cmd" "$sid" "${5:-}" | env -u ZENSU_PLUGIN_ROOT bash "$SHIM" pre-bash-zensu-gate.sh >/dev/null 2>&1
   rc=$?
   if [ "$rc" -eq "$exp" ]; then
     ok "$label -> rc=$exp"
@@ -44,6 +45,13 @@ gate() { # expected-rc: 2 = DENY, 0 = ALLOW
     bad "$label -> got rc=$rc, expected rc=$exp"
   fi
 }
+
+gate "capture start in direct mode" "zensu ai-work start --id goal --title agreed" 0
+gate "capture submit in direct mode" "zensu ai-work submit goal --event-id event" 0
+gate "capture cannot open unrelated writes" "zensu ai-work start --id goal && zensu features create --name X" 2
+gate "capture reads" "zensu ai-work context && zensu ai-work get goal" 0
+gate "child capture denied" "zensu ai-work start --id goal" 2 "$SID" reviewer
+gate "PLM capture denied" "zensu ai-work submit goal" 2 "$SID" zensu-plm
 
 # 1) Freelance mutation, no workflow active -> DENY
 gate "B1 freelance mutation (features create)" "zensu features create --name X --description d" 2

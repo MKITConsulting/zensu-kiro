@@ -307,3 +307,9 @@ bumps all four together). Conventional commits; changelog via git-cliff.
 [zensu-claude-code](https://github.com/MKITConsulting/zensu-claude-code)
 (upstream v0.8.4) with the
 engine-adaptation patterns of the zensu-codex port.
+
+## Automatic work capture
+
+Agreed implementation goals and new clean commits can be reported through personal
+CLI OAuth in direct or workflow mode. Acceptance and revocation remain human web
+decisions. See [capture behavior and host limits](docs/ai-work-capture.md).

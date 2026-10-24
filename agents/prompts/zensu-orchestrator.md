@@ -62,3 +62,16 @@ end your turn (the stop hook backstops this):
 ## Configuration
 Behavior is tunable via `~/.zensu/config.json` (`hooks.*`, `context.*`,
 `logging.timestampStyle`). See the zensu-kiro README for the full reference.
+
+## AI work capture
+
+Exception to PLM routing: the interactive main agent records the already agreed
+implementation goal and clean commit result through the capture helper, including
+in direct mode. Use the exact captureKey from the native primer. If the IDE Power
+provides no primer, run `node <installed-runtime>/hooks/kiro/ai-work.js session`
+once, retain its private conversation key, and follow its begin/checkpoint
+instructions. The runtime is normally `~/.kiro/zensu`. Never use the project's
+current-session file or delegate capture to a child. Missing native session IDs
+mean no automatic Stop retry; checkpoint before handoff and state that limitation.
+Return the exact reviewUrl. Personal CLI OAuth identifies the reporting account;
+only the human accepts or revokes in the web UI. A report or merge is not acceptance.
