@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- **ai-work**: Capture Kiro work with explicit session attribution (#13)
+
 ## [0.2.0] - 2026-06-27
 
 ### Added
