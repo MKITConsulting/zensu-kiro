@@ -45,7 +45,7 @@ INVOCATIONS="$(printf '%s' "$INPUT" | ZAPI="${ZENSU_API_URL:-}" node -e '
   } catch (_) { process.exit(0); }
   if (!cmd || cmd.indexOf("zensu") === -1) process.exit(0);
   const ALIAS = {product:"products",feature:"features",subfeature:"subfeatures",roadmaps:"roadmap",tier:"tiers",sec:"security",journey:"journeys",docs:"doc",kb:"knowledge","wiki-pages":"wiki"};
-  const NOUNS = new Set("products features subfeatures roadmap tiers security journeys link ghost wiki doc knowledge pulse meta org auth product feature subfeature roadmaps tier sec journey docs kb wiki-pages".split(" "));
+  const NOUNS = new Set("products ai-work features subfeatures roadmap tiers security journeys link ghost wiki doc knowledge pulse meta org auth product feature subfeature roadmaps tier sec journey docs kb wiki-pages".split(" "));
   const WRAP = new Set(["command","builtin","exec","env","sudo","nohup","nice","time"]);
   const out = [];
   function isLocalUrl(u) {
@@ -129,12 +129,13 @@ source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-config.sh"
 zensu_hook_enabled mcpGate || exit 0
 
 # zensu-plm runs ungated. On Kiro the exemption is per-agent (zensu-plm.json does
-# not register this hook); the agent_type check stays as a harmless no-op for
-# hosts that do populate it.
+# not register this hook). Capture is reserved for the main conversation even
+# when a host supplies child metadata or a PLM profile.
 AGENT_TYPE="$(field agent_type)"
-case "$AGENT_TYPE" in
-  *zensu-plm*) exit 0 ;;
-esac
+IS_CAPTURE_CHILD="$(printf '%s' "$INPUT" | node -e '
+  const p=JSON.parse(require("fs").readFileSync(0,"utf8"));
+  process.stdout.write(String(["agent_id","agent_type","agentId","agentType","parent_session_id","parentAgentId"].some(k=>Object.hasOwn(p,k)) || p.isChild===true));
+' 2>/dev/null)"
 
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-session.sh"
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-tdd-phase.sh"
@@ -157,6 +158,11 @@ while IFS="$(printf '\t')" read -r noun verb; do
   [ -z "$TOOL" ] && continue                          # unknown/neutral (auth, version) → allow
   zensu_is_read_tool "$TOOL" && continue              # read → allow
   zensu_is_mutation_tool "$TOOL" || continue          # not a known mutation → allow (safety)
+  if zensu_is_ai_work_capture_tool "$TOOL"; then
+    if [ "$IS_CAPTURE_CHILD" != false ]; then DENY_TOOL="$TOOL"; break; fi
+    continue
+  fi
+  case "$AGENT_TYPE" in *zensu-plm*) continue ;; esac
   tool_allowed_by_workflow "$TOOL" && continue        # workflow-driven → allow
   DENY_TOOL="$TOOL"; break                            # freelance mutation → deny
 done <<EOF
@@ -166,6 +172,10 @@ EOF
 [ -z "$DENY_TOOL" ] && exit 0
 
 REASON="Zensu state-mutating command (maps to '${DENY_TOOL}') was blocked. A direct main-thread \`zensu\` mutation bypasses the Zensu workflow conventions (dedup, user journeys, baseline revisions, security classification, release-readiness gates) that the skills and the zensu-plm agent enforce. Run the matching skill — /zensu-bootstrap or /zensu-ghost-scan (onboarding), /zensu-implement (feature work), /zensu-security-review (classification/review) — or delegate the whole task to the zensu-plm agent (subagent tool), instead of running the zensu CLI mutation directly. For a deliberate one-off, prefix the command with ZENSU_MCP_GATE=off (honored inline); writes targeting a localhost backend (--api-url/ZENSU_API_URL) and --help are never gated."
+
+if [ "$IS_CAPTURE_CHILD" != false ] && zensu_is_ai_work_capture_tool "$DENY_TOOL"; then
+  REASON="AI work capture is reserved for the main conversation. Report the agreed goal or result to the main agent; do not borrow its capture key."
+fi
 
 REASON="$REASON" node -e '
   process.stdout.write(JSON.stringify({

@@ -25,12 +25,14 @@
   "welcomeMessage": "Zensu PLM active — /zensu-help for orientation, /zensu-tdd for gate-enforced TDD.",
   "hooks": {
     "agentSpawn": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-ai-work.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-pulse.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-capture-sid.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-banner.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-primer.sh" }
     ],
     "userPromptSubmit": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-ai-work.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-context-nudge.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-intent-router.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-tdd-reminder.sh" }
@@ -49,6 +51,7 @@
       { "matcher": "use_subagent", "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh post-review-tdd-delegate.sh" }
     ],
     "stop": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh stop-ai-work-capture.sh", "timeout_ms": 25000 },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh stop-chain-enforcer.sh" }
     ]
   }
