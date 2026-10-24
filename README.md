@@ -319,3 +319,10 @@ the missing capability instead of silently falling back. See the
 [context procedure](skills/zensu-implement/references/knowledge-context.md)
 for truncation, access failures and evidence handoff. These reads supplement feature,
 security and design context. They do not record agent usage.
+
+## Automatic work capture
+
+Agreed implementation goals and new clean commits can be reported through personal
+CLI OAuth in direct or workflow mode. Automatic capture requires Zensu CLI 0.11.0
+or newer. Acceptance and revocation remain human web
+decisions. See [capture behavior and host limits](docs/ai-work-capture.md).

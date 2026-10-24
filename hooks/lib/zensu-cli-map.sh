@@ -96,6 +96,11 @@ zensu_cli_to_tool() {
     "knowledge search")         echo "search_knowledge" ;;
     "knowledge get")            echo "get_knowledge_item" ;;
     "knowledge sources")        echo "list_knowledge_sources" ;;
+    # ai-work: account reports only; human decisions remain web-only
+    "ai-work context")          echo "get_ai_work_capture_context" ;;
+    "ai-work start")            echo "start_ai_work_capture" ;;
+    "ai-work get")              echo "get_ai_work_capture" ;;
+    "ai-work submit")           echo "submit_ai_work_result" ;;
     # pulse
     "pulse start")              echo "pulse_start_session" ;;
     "pulse end")                echo "pulse_end_session" ;;
