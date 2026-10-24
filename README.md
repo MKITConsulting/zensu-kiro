@@ -311,5 +311,6 @@ engine-adaptation patterns of the zensu-codex port.
 ## Automatic work capture
 
 Agreed implementation goals and new clean commits can be reported through personal
-CLI OAuth in direct or workflow mode. Acceptance and revocation remain human web
+CLI OAuth in direct or workflow mode. Automatic capture requires Zensu CLI 0.11.0
+or newer. Acceptance and revocation remain human web
 decisions. See [capture behavior and host limits](docs/ai-work-capture.md).

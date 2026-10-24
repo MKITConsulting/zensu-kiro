@@ -52,8 +52,15 @@ not assumed from a version number: https://kiro.dev/docs/hooks/types/.
 
 ## Validation boundary
 
-On 2026-10-24, an isolated Kiro CLI 2.34.0 conversation delivered native
-`userPromptSubmit` and `stop` events with the same session ID. Both ran this
-checkout's unchanged adapter and shim successfully; the prompt supplied the
-capture primer. No goal or result was created by that read-only probe. The
-Power/IDE path remains advisory and has not been validated as native IDE capture.
+On 2026-10-25 (Europe/Berlin), an isolated Kiro CLI 2.34.0 conversation ran
+this checkout's unchanged hook adapter and shim against the released Zensu CLI
+0.11.0 and the live capture API. Native prompt, tool and Stop events retained the
+same session ID. The agent declared the agreed fixture goal, committed its result,
+and submitted the exact clean commit with `native-capture-v1` criteria. A second
+checkpoint and the native Stop hook both returned `already_submitted`.
+
+Read-back confirmed one authenticated owner/reporter, one submission, version 2,
+and no human decision; the CLI could not manage acceptance. Monitored global
+settings and installed plugin hashes remained unchanged. See the
+[native validation record](validation/2026-10-25-native-ai-work-capture.md).
+The Power/IDE path remains advisory and has not been validated as native IDE capture.
