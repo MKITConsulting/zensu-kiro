@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-24
+
+### Added
+
+- **context**: Load and hydrate linked feature evidence (#14)
+
 ## [0.3.0] - 2026-10-24
 
 ### Added
