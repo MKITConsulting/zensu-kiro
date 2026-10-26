@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-26
+
+### Added
+
+- **context**: Load tracked feature context automatically (#19)
+
 ## [0.4.0] - 2026-10-26
 
 ### Added
