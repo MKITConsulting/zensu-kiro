@@ -32,6 +32,7 @@
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh session-start-primer.sh" }
     ],
     "userPromptSubmit": [
+      { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-context-auto-load.sh", "timeout_ms": 12000 },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-ai-work.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-context-nudge.sh" },
       { "command": "bash __ZENSU_HOME__/hooks/kiro/kiro-shim.sh user-prompt-intent-router.sh" },

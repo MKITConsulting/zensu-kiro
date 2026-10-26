@@ -17,6 +17,9 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TDD_STATE_DIR="$TMP/state"
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
 mkdir -p "$TDD_STATE_DIR"
+# This case tests strict RED_FAIL denial, independently of user configuration.
+export ZENSU_CONFIG="$TMP/strict-config.json"
+printf '%s' '{"hooks":{"tddImplementation":true}}' > "$ZENSU_CONFIG"
 SID="s04-shim-deny"
 LOG="$ROOT/hooks/lib/zensu-log.sh"
 SHIM="$ROOT/hooks/kiro/kiro-shim.sh"
