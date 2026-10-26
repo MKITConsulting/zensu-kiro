@@ -1,6 +1,6 @@
 # zensu-kiro
 
-![version](https://img.shields.io/badge/version-0.4.0-blue)
+![version](https://img.shields.io/badge/version-0.4.1-blue)
 ![hosts](https://img.shields.io/badge/hosts-Kiro%20IDE%20%E2%89%A50.9%20%C2%B7%20Kiro%20CLI%20%E2%89%A52.6-purple)
 ![license](https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-green)
 
