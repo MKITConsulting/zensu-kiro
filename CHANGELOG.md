@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-26
+
+### Added
+
+- **knowledge**: Retain agent retrieval receipts and correlate source reads (#17)
+
 ## [0.3.1] - 2026-10-24
 
 ### Added
