@@ -326,3 +326,7 @@ Agreed implementation goals and new clean commits can be reported through person
 CLI OAuth in direct or workflow mode. Automatic capture requires Zensu CLI 0.11.0
 or newer. Acceptance and revocation remain human web
 decisions. See [capture behavior and host limits](docs/ai-work-capture.md).
+
+## Automatic feature context
+
+An explicit, unambiguous feature key in a main user prompt automatically loads its tracked context package, including outside the Implement skill and in direct mode. Relevant source reads retain the returned `load_id`. Disable with `hooks.contextAutoLoad: false`. See [automatic context](docs/automatic-context.md) for host support, bounded reads, failure behavior and evidence limits.
