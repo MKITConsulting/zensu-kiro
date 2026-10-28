@@ -6,6 +6,13 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
+### Added
+
+- **capture**: Preserve plugin origin and explicit run purpose
+- **context**: Automatically discover relevant features from task descriptions
+
 ## [0.4.2] - 2026-10-28
 
 ### Fixed
