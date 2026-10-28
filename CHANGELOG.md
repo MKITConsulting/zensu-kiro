@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-28
+
+### Fixed
+
+- **context**: Prioritize relevant evidence and preserve related sources (#21)
+
 ## [0.4.1] - 2026-10-26
 
 ### Added
