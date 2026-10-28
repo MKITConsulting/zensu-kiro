@@ -43,6 +43,7 @@ function read(file) {
   if (!st.isFile() || st.isSymbolicLink() || st.size > 32768) throw new Error('Unsafe capture state');
   const s = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (s.schema !== 1 || !UUID.test(s.id) || !text(s.task, 160) || !text(s.title, 160) || !text(s.criteria, 160) || !text(s.apiUrl, 2048) || !SHA.test(s.startHead)) throw new Error('Invalid capture state');
+  if (s.metadata && (!text(s.metadata.source, 32) || !text(s.metadata.sourceVersion, 64) || !['work', 'test'].includes(s.metadata.runKind))) throw new Error('Invalid capture metadata');
   if (s.pending && (!UUID.test(s.pending.id) || !Number.isInteger(s.pending.expectedVersion) || s.pending.expectedVersion < 1 || !/^commit:(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(s.pending.artifactRef) || s.pending.criteriaVersion !== s.criteria)) throw new Error('Invalid pending submission');
   return s;
 }
@@ -62,12 +63,14 @@ function start(s, root) {
   if (context.apiUrl !== s.apiUrl) throw new Error('Capture host changed; restore the original host or begin a new task');
   // Replay the declaration before every report. The server rejects a changed
   // authenticated subject even if the replacement login is an administrator.
-  const result = cli(['start', '--id', s.id, '--title', s.title], root);
+  const metadata = s.metadata ? ['--source', s.metadata.source, '--source-version', s.metadata.sourceVersion, '--run-kind', s.metadata.runKind] : ['--legacy-metadata'];
+  const result = cli(['start', '--id', s.id, '--title', s.title, ...metadata], root);
   if (result.id !== s.id) throw new Error('Capture start identity mismatch');
 }
 function detail(s, root) {
   const d = cli(['get', s.id], root);
   if (d.id !== s.id || !Number.isInteger(d.version) || d.version < 1 || !UUID.test(d.reportingUserId) || !UUID.test(d.organizationId)) throw new Error('Capture detail identity mismatch');
+  if (s.metadata && (d.source !== s.metadata.source || d.sourceVersion !== s.metadata.sourceVersion || !['work', 'test'].includes(d.runKind))) throw new Error('Capture metadata was not confirmed; update the CLI and server');
   if (s.user && (s.user !== d.reportingUserId || s.organization !== d.organizationId)) throw new Error('Capture account changed');
   if (d.result && (!UUID.test(d.result.id) || typeof d.result.artifactRef !== 'string')) throw new Error('Invalid captured result');
   const review = new URL(d.reviewUrl);
@@ -76,18 +79,22 @@ function detail(s, root) {
   return d;
 }
 function begin(options) {
+  const runKind = options['run-kind'] ?? 'work';
+  if (!['work', 'test'].includes(runKind)) throw new Error('Run kind must be work or test');
   const { root, file } = location(options.workspace, options.session, true);
   if (!text(options.task, 160) || !text(options.title, 160) || !text(options.criteria, 160)) throw new Error('Task, objective and criteria version are required');
   return lock(file, () => {
     let s = read(file);
     if (s && s.task === options.task && (s.title !== options.title || s.criteria !== options.criteria)) throw new Error('A task retry must keep its objective and criteria version; use a new task key for a changed goal');
+    if (s && s.task === options.task && ((s.metadata && (s.metadata.runKind !== runKind || s.metadata.source !== options.source)) || (!s.metadata && Object.hasOwn(options, 'run-kind')))) throw new Error('A task retry must keep its run purpose and source; use a new task key');
     if (!s || s.task !== options.task) {
+      if (!text(options.source, 32) || !text(options.sourceVersion, 64)) throw new Error('A reporter source and version are required');
       if (s && s.pending) throw new Error('Previous submission is still pending; retry it before starting another task');
       const head = execute('git', ['rev-parse', 'HEAD'], root);
       if (!SHA.test(head)) throw new Error('A committed starting revision is required');
       const context = cli(['context'], root);
       if (!text(context.apiUrl, 2048)) throw new Error('Invalid capture host');
-      s = { schema: 1, id: crypto.randomUUID(), task: options.task, title: options.title, criteria: options.criteria, apiUrl: context.apiUrl, startHead: head };
+      s = { schema: 1, metadata: { source: options.source, sourceVersion: options.sourceVersion, runKind }, id: crypto.randomUUID(), task: options.task, title: options.title, criteria: options.criteria, apiUrl: context.apiUrl, startHead: head };
       // Persist before the first request, including on a lost response.
       save(file, s);
     }
