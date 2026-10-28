@@ -47,18 +47,18 @@ function initialize(payload) {
 function validNative(id) { key(id); return id; }
 function primer(binding) {
   const helper = JSON.stringify(path.resolve(__dirname, 'ai-work.js'));
-  return `Zensu AI work capture: retain captureKey=${binding.key} only in this conversation. Identity mode=${binding.identity}. For an authorized implementation goal, automatically run node ${helper} begin --capture-key ${binding.key} --task <stable-goal-key> --title <agreed-objective> --criteria <criteria-version-or-digest>. Quote each value; reuse them on retries. This applies in direct mode too; startup, greetings and read-only questions create no work. After the final clean commit run node ${helper} checkpoint --capture-key ${binding.key} and include its exact reviewUrl. Personal CLI OAuth identifies the reporting account; a local conversation key is not proof of native host identity or authorship. Never borrow a project current-session pointer or another conversation key. ${binding.identity === 'native' ? 'Stop can retry this exact native session.' : 'This host supplied no session ID: automatic Stop capture is unavailable; the agent must checkpoint before handoff.'} Capture failures stay visible without blocking coding. Human acceptance and revocation remain web-only; a commit or merge never approves a result.`;
+  return `Zensu AI work capture: retain captureKey=${binding.key} only in this conversation. Identity mode=${binding.identity}. For an authorized implementation goal, automatically run node ${helper} begin --capture-key ${binding.key} --task <stable-goal-key> --title <agreed-objective> --criteria <criteria-version-or-digest>. Quote each value; reuse them on retries. Explicit validation/demo/probe tasks must use --run-kind test; normal product work including tests uses --run-kind work. This applies in direct mode too; startup, greetings and read-only questions create no work. After the final clean commit run node ${helper} checkpoint --capture-key ${binding.key} and include its exact reviewUrl. Personal CLI OAuth identifies the reporting account; a local conversation key is not proof of native host identity or authorship. Never borrow a project current-session pointer or another conversation key. ${binding.identity === 'native' ? 'Stop can retry this exact native session.' : 'This host supplied no session ID: automatic Stop capture is unavailable; the agent must checkpoint before handoff.'} Capture failures stay visible without blocking coding. Human acceptance and revocation remain web-only; a commit or merge never approves a result.`;
 }
 function run(action, args, workspace = process.cwd()) {
   const values = {};
   for (let i = 0; i < args.length; i += 2) {
     const name = args[i];
-    if (!['--capture-key', '--task', '--title', '--criteria'].includes(name) || typeof args[i + 1] !== 'string' || Object.hasOwn(values, name.slice(2))) throw new Error('Invalid capture arguments');
+    if (!['--capture-key', '--task', '--title', '--criteria', '--run-kind'].includes(name) || typeof args[i + 1] !== 'string' || Object.hasOwn(values, name.slice(2))) throw new Error('Invalid capture arguments');
     values[name.slice(2)] = args[i + 1];
   }
   if (action === 'checkpoint' && Object.keys(values).some(k => k !== 'capture-key')) throw new Error('Checkpoint accepts only the capture key');
   const binding = read(workspace, values['capture-key']);
-  return capture.run(action, { workspace, session: binding.key, task: values.task, title: values.title, criteria: values.criteria }, 20000);
+  return capture.run(action, { source: 'kiro', sourceVersion: fs.readFileSync(path.resolve(__dirname, '../../VERSION'), 'utf8').trim(), ...(Object.hasOwn(values, 'run-kind') ? { 'run-kind': values['run-kind'] } : {}), workspace, session: binding.key, task: values.task, title: values.title, criteria: values.criteria }, 20000);
 }
 function stop(payload) {
   if (child(payload)) return { status: 'child_ignored' };
