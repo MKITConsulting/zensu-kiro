@@ -99,6 +99,7 @@ zensu_cli_to_tool() {
     "knowledge sources")        echo "list_knowledge_sources" ;;
     # ai-work: account reports only; human decisions remain web-only
     "ai-work context")          echo "get_ai_work_capture_context" ;;
+    "ai-work bind")             echo "bind_ai_work_product" ;;
     "ai-work start")            echo "start_ai_work_capture" ;;
     "ai-work get")              echo "get_ai_work_capture" ;;
     "ai-work submit")           echo "submit_ai_work_result" ;;

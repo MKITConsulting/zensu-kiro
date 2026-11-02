@@ -13,6 +13,16 @@ function fixture(t) {
   t.after(() => fs.rmSync(project, { recursive: true, force: true }));
   return project;
 }
+test('the native adapter forwards only explicitly supplied cross-product intent', t => {
+  const cwd = fixture(t), binding = capture.initialize({ cwd });
+  const engine = require('../../hooks/lib/ai-work-capture-v1.js');
+  const previous = engine.run; t.after(() => { engine.run = previous; });
+  engine.run = (action, options) => options;
+  const args = ['--capture-key', binding.key, '--task', 'goal', '--title', 'Shared tooling', '--criteria', 'v1'];
+  assert.equal(capture.run('begin', args, cwd)['cross-product-reason'], undefined);
+  assert.equal(capture.run('begin', [...args, '--cross-product-reason', 'Explicit shared goal'], cwd)['cross-product-reason'], 'Explicit shared goal');
+  assert.match(capture.primer(binding), /explicit human confirmation/);
+});
 test('legacy conversations receive independent keys and never consult the current-session pointer', t => {
   const cwd = fixture(t);
   fs.mkdirSync(path.join(cwd, '.zensu/state'), { recursive: true });
