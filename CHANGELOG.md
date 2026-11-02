@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-02
+
+### Added
+
+- **ai-work**: Require explicit feature scope for captured goals (#28)
+
 ## [0.6.0] - 2026-11-02
 
 ### Added
