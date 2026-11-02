@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-02
+
+### Added
+
+- **ai-work**: Require explicit product scope for capture (#26)
+
 ## [0.5.0] - 2026-10-28
 
 ### Added
