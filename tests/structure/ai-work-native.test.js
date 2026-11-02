@@ -20,6 +20,9 @@ test('the native adapter forwards only explicitly supplied cross-product intent'
   engine.run = (action, options) => options;
   const args = ['--capture-key', binding.key, '--task', 'goal', '--title', 'Shared tooling', '--criteria', 'v1'];
   assert.equal(capture.run('begin', args, cwd)['cross-product-reason'], undefined);
+  const goal = capture.run('begin', [...args, '--feature', 'feature', '--feature-revision', 'revision'], cwd);
+  assert.equal(goal.feature, 'feature'); assert.equal(goal['feature-revision'], 'revision');
+  assert.equal(capture.run('begin', [...args, '--maintenance-reason', 'Upgrade tooling'], cwd)['maintenance-reason'], 'Upgrade tooling');
   assert.equal(capture.run('begin', [...args, '--cross-product-reason', 'Explicit shared goal'], cwd)['cross-product-reason'], 'Explicit shared goal');
   assert.match(capture.primer(binding), /explicit human confirmation/);
 });
