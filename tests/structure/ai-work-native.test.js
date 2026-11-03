@@ -13,6 +13,24 @@ function fixture(t) {
   t.after(() => fs.rmSync(project, { recursive: true, force: true }));
   return project;
 }
+test('native checkpoints forward review files without changing the conversation binding', t => {
+  const cwd = fixture(t), binding = capture.initialize({ cwd });
+  const engine = require('../../hooks/lib/ai-work-capture-v1.js');
+  const calls = [];
+  t.mock.method(engine, 'run', (action, options, budget) => { calls.push({ action, options, budget }); return { status: 'submitted_for_review' }; });
+  const file = path.join(cwd, 'explicit review.json');
+  const args = ['--capture-key', binding.key, '--review-file', file];
+  assert.equal(capture.run('checkpoint', args, cwd).status, 'submitted_for_review');
+  assert.equal(calls[0].options['review-file'], file);
+  assert.equal(calls[0].options.session, binding.key);
+  assert.equal(calls[0].options.source, 'kiro');
+  assert.equal(calls[0].budget, 20000);
+  for (const action of ['begin', 'preflight', 'pause']) assert.throws(() => capture.run(action, args, cwd), /belong to checkpoint/);
+  for (const suffix of [['--task', 'other'], ['--review-file'], ['--review-file', file]]) assert.throws(() => capture.run('checkpoint', [...args, ...suffix], cwd));
+  assert.throws(() => capture.run('checkpoint', ['--capture-key', capture.key('foreign'), '--review-file', file], cwd));
+  assert.equal(calls.length, 1);
+  assert.match(capture.primer(binding), /checkpoint --capture-key .* --review-file/);
+});
 test('the native adapter forwards only explicitly supplied cross-product intent', t => {
   const cwd = fixture(t), binding = capture.initialize({ cwd });
   const engine = require('../../hooks/lib/ai-work-capture-v1.js');
