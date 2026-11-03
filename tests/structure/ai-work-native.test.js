@@ -25,6 +25,8 @@ test('the native adapter forwards only explicitly supplied cross-product intent'
   assert.equal(capture.run('begin', [...args, '--maintenance-reason', 'Upgrade tooling'], cwd)['maintenance-reason'], 'Upgrade tooling');
   assert.equal(capture.run('begin', [...args, '--cross-product-reason', 'Explicit shared goal'], cwd)['cross-product-reason'], 'Explicit shared goal');
   assert.match(capture.primer(binding), /explicit human confirmation/);
+  assert.match(capture.primer(binding), /preflight/);
+  assert.match(capture.primer(binding), /use pause instead/);
 });
 test('legacy conversations receive independent keys and never consult the current-session pointer', t => {
   const cwd = fixture(t);
@@ -42,6 +44,9 @@ test('native session payloads are stable and Stop does not create a goal', t => 
   assert.deepEqual(again, first); assert.equal(first.identity, 'native');
   assert.equal(capture.stop(payload).status, 'not_started');
   assert.equal(fs.existsSync(path.join(cwd, '.git/zensu-ai-work-v1')), false);
+  assert.equal(capture.run('pause', ['--capture-key', first.key], cwd).status, 'capture_disabled');
+  assert.equal(capture.run('preflight', ['--capture-key', first.key], cwd).status, 'capture_disabled');
+  assert.equal(capture.stop(payload).status, 'capture_disabled');
   assert.equal(capture.stop({ cwd, session_id: 'another-session' }).status, 'not_started');
 });
 test('child and malformed native identities never fall back to a main conversation key', t => {

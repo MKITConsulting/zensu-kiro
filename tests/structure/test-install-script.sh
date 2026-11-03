@@ -48,6 +48,7 @@ OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ "$RC" -eq 0 ] && ok "install exits 0" || { bad "install rc=$RC"; printf '%s\n' "$OUT" | tail -5; }
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && ok "runtime home has kiro-shim" || bad "kiro-shim not installed"
 [ -f "$HOME/.kiro/zensu/hooks/lib/zensu-log.sh" ] && ok "runtime home has libs" || bad "libs not installed"
+cmp -s "$ROOT/docs/cli-install-update.md" "$HOME/.kiro/zensu/docs/cli-install-update.md" && ok "CLI update guide installed unchanged" || bad "CLI update guide missing or transformed"
 [ -f "$HOME/.kiro/zensu/prompts/zensu-orchestrator.md" ] && ok "prompts installed" || bad "prompts missing"
 [ -f "$HOME/.kiro/zensu/VERSION" ] && ok "VERSION installed" || bad "VERSION missing"
 [ -f "$HOME/.kiro/zensu/manifest.json" ] && ok "manifest written" || bad "manifest missing"
