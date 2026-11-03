@@ -218,6 +218,7 @@ while IFS= read -r f; do
   install_file "$f" "$ZENSU_HOME/$rel" "$USER_LIST"
 done < <(find "$SRC/hooks" -type f \( -name '*.sh' -o -name '*.js' \) ! -name 'plan-approved-delegate.sh' | sort)
 install_file "$SRC/docs/ai-work-capture.md" "$ZENSU_HOME/docs/ai-work-capture.md" "$USER_LIST"
+install_file "$SRC/docs/cli-install-update.md" "$ZENSU_HOME/docs/cli-install-update.md" "$USER_LIST"
 install_file "$SRC/VERSION" "$ZENSU_HOME/VERSION" "$USER_LIST"
 install_file "$SRC/config.example.json" "$ZENSU_HOME/config.example.json" "$USER_LIST"
 while IFS= read -r f; do
