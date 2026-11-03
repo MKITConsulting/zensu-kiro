@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-03
+
+### Added
+
+- **ai-work**: Recover pending captures and preflight explicit scope (#30)
+
 ## [0.7.0] - 2026-11-02
 
 ### Added
