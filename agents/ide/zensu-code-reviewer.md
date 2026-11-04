@@ -31,7 +31,7 @@ Without that marker, run the full standalone review (Phases 0-5) below.
 
 ## Phase 0: Pre-flight
 
-Create a task immediately: `todo-add(subject: "Code Review: Analyzing files", description: "Analyze the changed files across 5 review perspectives", activeForm: "Analyzing files")`. Mark `in_progress` via `todo-update`. (`todo-add` requires both `subject` and `description`; it has no `status` field.)
+Create a task immediately: "Code Review: Analyzing files", in the `todo` tool your tool list grants and with the schema that tool advertises, and mark it in progress where the schema allows. Without a `todo` tool, skip task tracking; it never blocks the review.
 
 
 ## Phase 1: Preparation

@@ -92,7 +92,7 @@ Severity: a **blocker (P1)** means the plan will fail, break something, miss the
 
 ## Workflow
 
-Six phases. Track each with `todo` (add item) / `todo` (update item).
+Six phases. Track each through the session's progress channel: the `todo` tool when the session exposes it, otherwise a short prose checklist.
 
 ### Phase A — Locate Plan + Scope
 
@@ -122,7 +122,7 @@ printf 'DIR=%s\nREPO=%s\nSLUG=%s\n' "$DIR" "$REPO" "$SLUG" > "$DIR/.env"
 
 ```
 Name the review team "plan-review-<slug>" (no team primitive on Kiro — the team IS the batch of subagent spawns below)
-todo-add one per persona + one "Consolidate" + one "Report"
+Add one progress item per persona + one "Consolidate" + one "Report"
 ```
 
 Spawn **all reviewers in a SINGLE message** with multiple `Agent` tool uses (parallel): `agent: zensu-review-aspect`, `team_name: plan-review-<slug>`, `name: <persona-id>`, `run_in_background: true`. Each prompt = the chosen persona's focus (copied from the pool above) + the output schema + the injection block below.
@@ -135,9 +135,8 @@ Spawn **all reviewers in a SINGLE message** with multiple `Agent` tool uses (par
 > **Your focus:** <inject the persona's focus paragraph here>.
 > **Verify before judging:** check the plan's concrete assumptions against the real code first — do not review the plan in a vacuum.
 > **Write your verdict as JSON to `<DIR>/<persona-id>.json`** per this schema: <inject the output schema here>. Every blocker MUST include a concrete `plan_amendment` and a `plan_ref`. Max 6 blockers.
-> When done, `todo` (update item) your task → `completed`.
 
-Mark each reviewer task `in_progress` with `owner=<persona-id>`.
+Mark each reviewer's progress item `in_progress` as you dispatch it.
 
 ### Phase D — Wait + Consolidate
 
