@@ -24,7 +24,7 @@ If `<pr-url>` is missing, ask the user via a plain-text question with explicit o
 
 ## Workflow
 
-Five phases. Track each as a task with the `todo` tool.
+Five phases. Track each through the session's progress channel: the `todo` tool when the session exposes it, otherwise a short prose checklist.
 
 ### Phase A — Scout + Persona-Cast
 
@@ -89,7 +89,7 @@ Ask via a plain-text question with explicit options: "Cast OK? [Go / Reduce / Ex
 
 ```
 Name the review team "pr<n>-review" (no team primitive on Kiro — the team IS the batch of subagent spawns below)
-todo-add one per role + one each for Debate, Synthesis, Publish
+Add one progress item per role + one each for Debate, Synthesis, Publish
 ```
 
 Spawn all reviewers in a **single message** with multiple `Agent` tool uses (parallel):
@@ -106,7 +106,7 @@ Every reviewer prompt MUST contain the explicit `WORKTREE` instruction:
 
 Each reviewer writes structured JSON to `$WORKDIR/<role>.json`. Schema in `references/reviewer-personas.md` (key fields: `inline_findings[]`, `overall_notes[]`, `verdict_hint`).
 
-Mark reviewer tasks `in_progress` with `owner=<role>`.
+Mark each reviewer's progress item `in_progress` as you dispatch it.
 
 ### Phase C — Wait + Debate
 
