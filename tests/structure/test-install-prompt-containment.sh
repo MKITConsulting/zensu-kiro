@@ -21,9 +21,10 @@ const env = {...process.env, HOME: home, USERPROFILE: home,
   ZENSU_NO_UPDATE_CHECK: '1'};
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const names = ['zensu', 'zensu-plm', 'zensu-code-reviewer', 'zensu-review-aspect'];
-// Manifest keys stay POSIX on Git Bash; Node reads native Windows paths.
-const native = p => process.platform === 'win32' ?
-  p.replace(/^\/([A-Za-z])\//, (_, d) => d.toUpperCase() + ':/') : p;
+// Manifest keys stay POSIX on Git Bash, including virtual mounts such as /tmp.
+// Use Git Bash's own mount translation in one batch, cached across lookups.
+const nativePaths = new Map();
+const native = p => nativePaths.get(p) || p;
 // Git Bash and Windows Node can expose different casing and short/long path
 // aliases for the same temp directory. Compare actual filesystem identities.
 const identity = p => {
@@ -31,8 +32,21 @@ const identity = p => {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 };
 const keyFor = (manifest, target) => {
+  const keys = Object.keys(manifest.files);
+  if (process.platform === 'win32') {
+    const missing = keys.filter(p => p.startsWith('/') && !nativePaths.has(p));
+    if (missing.length) {
+      const result = spawnSync('cygpath', ['-w', '-f', '-'], {
+        env, input: missing.join('\n') + '\n', encoding: 'utf8', timeout: 10000,
+      });
+      assert.equal(result.status, 0, result.stderr || result.error?.message);
+      const translated = result.stdout.trim().split(/\r?\n/);
+      assert.equal(translated.length, missing.length);
+      missing.forEach((p, i) => nativePaths.set(p, translated[i]));
+    }
+  }
   const expected = identity(target);
-  return Object.keys(manifest.files).find(p => {
+  return keys.find(p => {
     try { return identity(p) === expected; } catch (_) { return false; }
   });
 };
