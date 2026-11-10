@@ -24,8 +24,18 @@ const names = ['zensu', 'zensu-plm', 'zensu-code-reviewer', 'zensu-review-aspect
 // Manifest keys stay POSIX on Git Bash; Node reads native Windows paths.
 const native = p => process.platform === 'win32' ?
   p.replace(/^\/([A-Za-z])\//, (_, d) => d.toUpperCase() + ':/') : p;
-const keyFor = (manifest, target) => Object.keys(manifest.files).find(p =>
-  path.resolve(native(p)) === path.resolve(target));
+// Git Bash and Windows Node can expose different casing and short/long path
+// aliases for the same temp directory. Compare actual filesystem identities.
+const identity = p => {
+  const resolved = fs.realpathSync.native(native(p));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+};
+const keyFor = (manifest, target) => {
+  const expected = identity(target);
+  return Object.keys(manifest.files).find(p => {
+    try { return identity(p) === expected; } catch (_) { return false; }
+  });
+};
 const read = p => fs.readFileSync(p);
 const json = p => JSON.parse(read(p));
 const save = (p, value) => fs.writeFileSync(p, JSON.stringify(value, null, 2) + '\n');
@@ -58,7 +68,10 @@ try {
         const within = path.relative(fs.realpathSync(boundary), target);
         assert(within && !within.startsWith('..') && !path.isAbsolute(within));
         assert.deepEqual(read(target), read(path.join(root, 'agents/prompts', filename)));
-        assert.equal(manifest.files[keyFor(manifest, target)], hash(read(target)));
+        const promptKey = keyFor(manifest, target);
+        assert(promptKey, JSON.stringify({target, manifestPaths: Object.keys(manifest.files)
+          .filter(p => p.includes('zensu-prompts'))}));
+        assert.equal(manifest.files[promptKey], hash(read(target)));
         assert.equal(manifest.files[keyFor(manifest, configs[i])], hash(read(configs[i])));
         if (name === 'zensu') assert(config.resources.includes(config.prompt));
         prompts.push(target);
@@ -75,11 +88,17 @@ try {
     // Migration metadata below is synthetic: these assertions test ownership,
     // not Kiro's migration algorithm (the native acceptance run covers that).
     const previous = json(manifestPath);
+    const runtimeManifest = json(path.join(home, '.kiro/zensu/manifest.json'));
+    const runtimePromptKey = keyFor(runtimeManifest,
+      path.join(home, '.kiro/zensu/prompts/zensu-orchestrator.md'));
+    assert(runtimePromptKey, 'legacy runtime prompt must be recorded');
+    // Reproduce the installer's path spelling, including Git Bash's /c/ form.
+    const runtimeRoot = runtimePromptKey.slice(0, runtimePromptKey.lastIndexOf('/prompts/'));
     const kept = [];
     for (const [i, p] of configs.entries()) {
       const legacy = JSON.parse(fs.readFileSync(path.join(root, 'agents/cli', names[i] + '.json'), 'utf8')
-        .replaceAll('__ZENSU_HOME__', path.join(home, '.kiro/zensu').replaceAll('\\', '/'))
-        .replaceAll('file://./zensu-prompts/', 'file://' + path.join(home, '.kiro/zensu/prompts/').replaceAll('\\', '/')));
+        .replaceAll('__ZENSU_HOME__', runtimeRoot)
+        .replaceAll('file://./zensu-prompts/', 'file://' + runtimeRoot + '/prompts/'));
       save(p, legacy);
       const key = keyFor(previous, p);
       previous.files[key] = hash(read(p));

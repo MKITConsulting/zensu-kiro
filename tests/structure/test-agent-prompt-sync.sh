@@ -17,7 +17,7 @@ for n in zensu-plm zensu-code-reviewer zensu-review-aspect; do
   [ -f "$IDE" ] || { bad "$n: ide file missing"; continue; }
   BODY_IDE="$(awk 'BEGIN{c=0} /^---$/{c++; next} c>=2 {print}' "$IDE")"
   BODY_PR="$(cat "$PR")"
-  if [ "$(printf '%s' "$BODY_IDE" | shasum | cut -d' ' -f1)" = "$(printf '%s' "$BODY_PR" | shasum | cut -d' ' -f1)" ]; then
+  if [ "$BODY_IDE" = "$BODY_PR" ]; then
     ok "$n: ide body == prompts body"
   else
     bad "$n: ide body diverges from prompts body"
