@@ -94,10 +94,14 @@ done
 
 manifest_lookup() { # $1=manifest $2=abs path -> recorded hash or empty
   [ -f "$1" ] || return 0
-  M="$1" P="$2" node -e '
+  # The key is manifest data, not a native filesystem argument. Git Bash
+  # converts path-shaped env values for Windows Node; stdin preserves bytes.
+  printf '%s' "$2" | M="$1" node -e '
     try {
-      const m = JSON.parse(require("fs").readFileSync(process.env.M,"utf8"));
-      process.stdout.write((m.files && m.files[process.env.P]) || "");
+      const fs = require("fs");
+      const key = fs.readFileSync(0, "utf8");
+      const m = JSON.parse(fs.readFileSync(process.env.M,"utf8"));
+      process.stdout.write((m.files && m.files[key]) || "");
     } catch (_) {}
   ' 2>/dev/null
 }
@@ -258,10 +262,11 @@ while IFS= read -r f; do
   agent_dst="$KIRO_DIR/agents/$(basename "$f")"
   if [ -f "$agent_dst" ] && [ -f "$legacy_prompt" ] &&
       [ "$(sha "$legacy_prompt")" != "$(sha "$SRC/agents/prompts/$prompt_name.md")" ] &&
-      LEGACY_URI="file://$legacy_prompt" node -e '
+      printf 'file://%s' "$legacy_prompt" | node -e '
         try {
-          const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-          process.exit(config.prompt === process.env.LEGACY_URI ? 0 : 1);
+          const fs = require("fs");
+          const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          process.exit(config.prompt === fs.readFileSync(0, "utf8") ? 0 : 1);
         } catch (_) { process.exit(1); }
       ' "$agent_dst"; then
     say "SKIP    $agent_dst (customized legacy prompt; see docs/kiro-v3-migration.md)"
