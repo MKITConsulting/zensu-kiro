@@ -31,6 +31,9 @@ file_hash() { node -e 'console.log(require("crypto").createHash("sha256").update
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
+export ZENSU_CONFIG_DIR="$TMP/empty-cli"
+export ZENSU_API_URL="http://127.0.0.1:9"
+export ZENSU_NO_UPDATE_CHECK=1
 mkdir -p "$HOME/.kiro/settings"
 
 INSTALL="$ROOT/install.sh"
