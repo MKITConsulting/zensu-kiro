@@ -4,7 +4,7 @@
 #
 #   ~/.kiro/zensu/            hook runtime (hooks/, prompts/, VERSION, manifest)
 #   <scope>/.kiro/skills/     11 Agent-Skills-standard skills (IDE + CLI)
-#   <scope>/.kiro/agents/     4 CLI agent JSONs (rendered) + 3 IDE agent md
+#   <scope>/.kiro/agents/     CLI/IDE agents + zensu-prompts/ canonical bodies
 #   ~/.zensu/plugin-root      runtime-home pointer the skills depend on
 #   ~/.zensu/config.json      seeded from config.example.json if missing
 #
@@ -83,6 +83,15 @@ fi
 
 say() { printf '%s\n' "$*"; }
 
+# Prompt paths must remain inside the selected Kiro directory, including on
+# reinstall/uninstall. Do not follow a user-created symlink out of that tree.
+for p in "$KIRO_DIR" "$KIRO_DIR/agents" "$KIRO_DIR/agents/zensu-prompts" "$KIRO_DIR/agents/zensu-prompts"/*.md; do
+  if [ -L "$p" ]; then
+    echo "FATAL: symlink in agent prompt path: $p (preserved; use a real directory/file)" >&2
+    exit 1
+  fi
+done
+
 manifest_lookup() { # $1=manifest $2=abs path -> recorded hash or empty
   [ -f "$1" ] || return 0
   M="$1" P="$2" node -e '
@@ -119,6 +128,10 @@ install_file() {
       # Either the user modified a file we installed, or the file pre-existed
       # without any record of ours — never silently overwrite foreign content.
       say "SKIP    $dst (pre-existing/user-modified; --force to overwrite)"
+      case "$dst" in
+        "$KIRO_DIR/agents/"*.json)
+          say "        Kiro-migrated configs are preserved too; see docs/kiro-v3-migration.md before replacing an agent." ;;
+      esac
       # User-modified OUR file: carry the previous record forward so the guard
       # survives this upgrade's manifest rewrite. FOREIGN file (no record):
       # record NOTHING — recording its hash would make the next run treat it
@@ -221,16 +234,41 @@ install_file "$SRC/docs/ai-work-capture.md" "$ZENSU_HOME/docs/ai-work-capture.md
 install_file "$SRC/docs/cli-install-update.md" "$ZENSU_HOME/docs/cli-install-update.md" "$USER_LIST"
 install_file "$SRC/VERSION" "$ZENSU_HOME/VERSION" "$USER_LIST"
 install_file "$SRC/config.example.json" "$ZENSU_HOME/config.example.json" "$USER_LIST"
+# Keep the legacy runtime copies for preserved old agent configs. They are not
+# the prompt location used by newly rendered agents (V3 rejects absolute URIs).
 while IFS= read -r f; do
   install_file "$f" "$ZENSU_HOME/prompts/$(basename "$f")" "$USER_LIST"
 done < <(find "$SRC/agents/prompts" -type f -name '*.md' | sort)
 
 # 2) skills + agents — into the selected scope, recorded in the scope manifest
 while IFS= read -r f; do
+  install_file "$f" "$KIRO_DIR/agents/zensu-prompts/$(basename "$f")" "$SCOPE_LIST"
+done < <(find "$SRC/agents/prompts" -type f -name '*.md' | sort)
+while IFS= read -r f; do
   rel="${f#"$SRC"/skills/}"
   install_file "$f" "$KIRO_DIR/skills/$rel" "$SCOPE_LIST"
 done < <(find "$SRC/skills" -type f | sort)
 while IFS= read -r f; do
+  # A clean legacy JSON can still use a customized runtime prompt. Switching
+  # its URI automatically would silently stop using those edits. Preserve the
+  # config and its ownership record until the user migrates that prompt.
+  prompt_name="$(basename "$f" .json)"
+  [ "$prompt_name" != "zensu" ] || prompt_name="zensu-orchestrator"
+  legacy_prompt="$ZENSU_HOME/prompts/$prompt_name.md"
+  agent_dst="$KIRO_DIR/agents/$(basename "$f")"
+  if [ -f "$agent_dst" ] && [ -f "$legacy_prompt" ] &&
+      [ "$(sha "$legacy_prompt")" != "$(sha "$SRC/agents/prompts/$prompt_name.md")" ] &&
+      LEGACY_URI="file://$legacy_prompt" node -e '
+        try {
+          const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+          process.exit(config.prompt === process.env.LEGACY_URI ? 0 : 1);
+        } catch (_) { process.exit(1); }
+      ' "$agent_dst"; then
+    say "SKIP    $agent_dst (customized legacy prompt; see docs/kiro-v3-migration.md)"
+    recorded="$(manifest_lookup "$SCOPE_MANIFEST" "$agent_dst")"
+    [ -z "$recorded" ] || printf '%s\t%s\n' "$agent_dst" "$recorded" >> "$SCOPE_LIST"
+    continue
+  fi
   install_file "$f" "$KIRO_DIR/agents/$(basename "$f")" "$SCOPE_LIST" render
 done < <(find "$SRC/agents/cli" -type f -name '*.json' | sort)
 while IFS= read -r f; do

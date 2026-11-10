@@ -2,7 +2,7 @@
 # S13 — agent bodies are deduplicated: agents/prompts/*.md is canonical, the IDE
 # subagent files (agents/ide/*.md, YAML frontmatter + body) must carry an
 # IDENTICAL body, and every CLI agent JSON prompt must reference an existing
-# prompts file via file://__ZENSU_HOME__/prompts/<name>.md.
+# prompts file via file://./zensu-prompts/<name>.md.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -28,12 +28,12 @@ done
 
 for f in "$ROOT"/agents/cli/*.json; do
   [ -f "$f" ] || { bad "no CLI agent JSONs"; break; }
-  P="$(grep -o 'file://__ZENSU_HOME__/prompts/[a-z-]*\.md' "$f" | head -1)"
+  P="$(grep -o 'file://\./zensu-prompts/[a-z-]*\.md' "$f" | head -1)"
   if [ -n "$P" ]; then
-    REL="${P#file://__ZENSU_HOME__/}"
+    REL="prompts/${P#file://./zensu-prompts/}"
     [ -f "$ROOT/agents/$REL" ] && ok "$(basename "$f"): prompt target exists (agents/$REL)" || bad "$(basename "$f"): prompt target missing (agents/$REL)"
   else
-    bad "$(basename "$f"): no file://__ZENSU_HOME__/prompts/ reference"
+    bad "$(basename "$f"): no file://./zensu-prompts/ reference"
   fi
 done
 
