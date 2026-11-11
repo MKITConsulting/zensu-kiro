@@ -52,6 +52,11 @@ per-file sha256), never stomps user-modified files (SKIP + warn), and uninstalls
 only what it installed. Zensu data access goes through the `zensu` CLI you
 installed in step 1 — the hosted MCP server is no longer wired into the plugin.
 
+Kiro CLI V3 uses scope-local prompt files and relative agent URIs. For already
+migrated or customized agent configs, follow the [safe V3 migration guide](docs/kiro-v3-migration.md)
+before replacing skipped files. Launch the V3 harness explicitly with
+`kiro-cli chat --v3 --agent zensu`.
+
 ### Kiro IDE (Power)
 
 Powers panel → **Add power from GitHub** (this repo URL) or **from Local
