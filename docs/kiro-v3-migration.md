@@ -119,12 +119,31 @@ Kiro's migration algorithm.
 
 Native acceptance must additionally use the real `kiro-cli chat --v3` loader
 with disposable user/workspace installation data. Keep provider authentication
-unchanged, isolate global files with Kiro's [documented `KIRO_HOME` override](https://kiro.dev/docs/cli/reference/settings/), and block Zensu
+unchanged, isolate Kiro profiles with the [documented `KIRO_HOME` override](https://kiro.dev/docs/cli/reference/settings/), and block Zensu
 API traffic in fixtures with an empty `ZENSU_CONFIG_DIR` and
 `ZENSU_API_URL=http://127.0.0.1:9`. Pause capture using the fixture session's own
 native helper before edits. Do not borrow identities, run product bindings, or
 submit reports. Record the exact scopes, agent names, CLI version, and any
 fixture-only adjustments; distinguish schema validation from real V3 loading.
+
+Install live fixtures with a disposable `HOME`; then launch the native CLI with
+the real `HOME` for provider authentication and `KIRO_HOME` pointing at the
+fixture's `.kiro` directory. The SessionStart Pulse hook does not create, replace,
+or touch the shared `~/.zensu/plugin-root` when `KIRO_HOME` is nonempty. This also
+applies when Pulse is disabled or the override names the default directory.
+Unset/empty `KIRO_HOME` retains the normal pointer initialization and refresh.
+The installer still owns its pointer write, so never install a fixture with the
+real `HOME`. Older runtime copies without this hook guard are not isolated by
+`KIRO_HOME` alone.
+
+`test-session-start-pulse.sh` verifies pointer bytes and mtime, absent global
+state, symlink targets, Pulse on/off, and normal-profile behavior through the
+actual Kiro shim using disposable homes. For a native check, snapshot the real
+installation and backups first, install only into the fixture, and compare the
+snapshot after the native process finishes. Do not restore the pointer afterward
+and count that as isolation: it must remain unchanged throughout the run.
+The existing `tests/run-promptfoo.sh` provider intentionally installs into the
+real user scope; do not use it for this preservation-sensitive check.
 
 See the [native acceptance record](validation/2026-11-11-kiro-v3-installer.md) for
 the tested paths, real migration/reinstall results, and explicit limits.

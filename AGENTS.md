@@ -51,6 +51,11 @@ plugin.
   - `session-start-capture-sid.sh` — synthesizes a session id when the payload
     carries none and persists `session-id-current.txt` (pinned by
     `test-session-resolution.sh`).
+  - `session-start-pulse.sh` — a nonempty `KIRO_HOME` suppresses all writes to
+    the shared `$HOME/.zensu/plugin-root`, even when Pulse is disabled or the
+    override spells the default directory. Normal unset/empty overrides retain
+    pointer initialization and refresh (`test-session-start-pulse.sh`). Keep
+    this input-side Kiro delta when re-syncing the upstream hook.
   - `post-review-tdd-delegate.sh` — name-field-first reviewer match for the
     `subagent`/`use_subagent` tool, locked round bump (pinned by
     `test-post-review-delegate.sh`).
