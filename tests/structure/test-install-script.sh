@@ -4,7 +4,7 @@
 #   fresh install   -> runtime home ~/.kiro/zensu (hooks, prompts, VERSION,
 #                      manifest.json {version, files} with sha256 + absolute
 #                      destinations), skills, agents (rendered: zero
-#                      __ZENSU_HOME__ leftovers), ~/.zensu/plugin-root + config
+#                      __ZENSU_*__ leftovers), ~/.zensu/plugin-root + config
 #   idempotency     -> second run changes nothing (portable mtime via node)
 #   user edits      -> a user-modified installed file is SKIPped on EVERY
 #                      subsequent upgrade (guard must survive the manifest
@@ -56,7 +56,7 @@ cmp -s "$ROOT/docs/cli-install-update.md" "$HOME/.kiro/zensu/docs/cli-install-up
 [ -f "$HOME/.kiro/agents/zensu.json" ] && ok "CLI agents installed" || bad "CLI agents missing"
 [ -f "$HOME/.kiro/agents/zensu-plm.md" ] && ok "IDE agents installed" || bad "IDE agents missing"
 [ -f "$HOME/.kiro/zensu/hooks/plan-approved-delegate.sh" ] && bad "unwired plan-approved hook installed to runtime" || ok "unwired plan-approved hook excluded from runtime"
-grep -r "__ZENSU_HOME__" "$HOME/.kiro/agents" >/dev/null 2>&1 && bad "__ZENSU_HOME__ leftovers in agents" || ok "placeholder fully rendered"
+grep -rE "__ZENSU_[A-Z_]+__" "$HOME/.kiro/agents" >/dev/null 2>&1 && bad "__ZENSU_*__ leftovers in agents" || ok "placeholders fully rendered"
 grep -q "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" "$HOME/.kiro/agents/zensu.json" && ok "hook commands point at runtime home" || bad "hook command paths wrong"
 [ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = "$HOME/.kiro/zensu" ] && ok "plugin-root written" || bad "plugin-root wrong"
 [ -f "$HOME/.zensu/config.json" ] && ok "config seeded" || bad "config not seeded"

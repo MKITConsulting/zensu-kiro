@@ -93,15 +93,28 @@ manifest_lookup() { # $1=manifest $2=abs path -> recorded hash or empty
   ' 2>/dev/null
 }
 
+kiro_backup_hash() {
+  local f
+  [ -f "$1.bak" ] || return 0
+  for f in "$1".bak.*; do [ -e "$f" ] && return 0; done
+  node -e '
+    try {
+      const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.exit(j && typeof j === "object" && !Array.isArray(j) && Object.prototype.hasOwnProperty.call(j, "kiroUpgrade") ? 0 : 1);
+    } catch (_) { process.exit(1); }
+  ' "$1" 2>/dev/null || return 0
+  sha "$1.bak"
+}
+
 USER_LIST="$(mktemp)"; SCOPE_LIST="$(mktemp)"
 trap 'rm -f "$USER_LIST" "$SCOPE_LIST"' EXIT
 INSTALL_FAILED=0
 
 # install_file <src-abs> <dst-abs> <list-file> [render]
 install_file() {
-  local src="$1" dst="$2" list="$3" render="${4:-no}" content tmp old want recorded
+  local src="$1" dst="$2" list="$3" render="${4:-no}" content tmp old want recorded kiro_bak kiro_ours=0
   if [ "$render" = "render" ]; then
-    content="$(sed "s|__ZENSU_HOME__|$ZENSU_HOME|g" "$src")"
+    content="$(sed -e "s|__ZENSU_HOME__|$ZENSU_HOME|g" -e "s|__ZENSU_PROMPTS_REL__|$PROMPTS_REL|g" "$src")"
   else
     content="$(cat "$src")"
   fi
@@ -113,9 +126,16 @@ install_file() {
       printf '%s\t%s\n' "$dst" "$want" >> "$list"
       return 0
     fi
+    kiro_bak="$(kiro_backup_hash "$dst")"
+    if [ -n "$kiro_bak" ] && [ "$kiro_bak" = "$want" ]; then
+      say "NOOP    $dst (kiro-cli upgraded it in place)"
+      printf '%s\t%s\n' "$dst" "$want" >> "$list"
+      return 0
+    fi
     recorded="$(manifest_lookup "$USER_MANIFEST" "$dst")"
     [ -n "$recorded" ] || recorded="$(manifest_lookup "$SCOPE_MANIFEST" "$dst")"
-    if [ "$FORCE" -ne 1 ] && { { [ -n "$recorded" ] && [ "$old" != "$recorded" ]; } || [ -z "$recorded" ]; }; then
+    [ -n "$kiro_bak" ] && [ "$kiro_bak" = "$recorded" ] && kiro_ours=1
+    if [ "$FORCE" -ne 1 ] && [ "$kiro_ours" -eq 0 ] && { { [ -n "$recorded" ] && [ "$old" != "$recorded" ]; } || [ -z "$recorded" ]; }; then
       # Either the user modified a file we installed, or the file pre-existed
       # without any record of ours — never silently overwrite foreign content.
       say "SKIP    $dst (pre-existing/user-modified; --force to overwrite)"
@@ -126,7 +146,7 @@ install_file() {
       [ -n "$recorded" ] && printf '%s\t%s\n' "$dst" "$recorded" >> "$list"
       return 0
     fi
-    say "UPDATE  $dst"
+    say "UPDATE  $dst$([ "$kiro_ours" -eq 1 ] && echo ' (kiro-cli upgraded it in place)')"
   else
     say "CREATE  $dst"
   fi
@@ -135,6 +155,7 @@ install_file() {
   tmp="$(mktemp "$(dirname "$dst")/.zensu-install.XXXXXX")" || return 1
   if printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$dst"; then
     case "$dst" in *.sh) chmod +x "$dst" ;; esac
+    [ "$kiro_ours" -eq 1 ] && rm -f "$dst.bak"
     # Record ONLY successful writes — a failed write must not poison the
     # manifest with a hash the on-disk file does not have.
     printf '%s\t%s\n' "$dst" "$want" >> "$list"
@@ -207,6 +228,24 @@ if [ "$UNINSTALL" -eq 1 ]; then
   [ "$SCOPE" = "user" ] && say "note: workspace-scoped installs in other directories keep agent configs referencing the removed runtime — run --scope workspace --uninstall there, or reinstall user scope" 
   exit 0
 fi
+
+PROMPTS_REL="$(node -e '
+  const fs = require("fs"), posix = require("path").posix;
+  const physical = p => {
+    if (process.platform === "win32") return p.replace(/\\/g, "/");
+    const rest = [];
+    for (let dir = p; ; dir = posix.dirname(dir)) {
+      try { return posix.join(fs.realpathSync(dir), ...rest); }
+      catch (_) { if (posix.dirname(dir) === dir) return p; rest.unshift(posix.basename(dir)); }
+    }
+  };
+  const rel = posix.relative(physical(process.argv[1]), physical(process.argv[2]));
+  if (!rel || (process.platform === "win32" && /(^|\/)[A-Za-z]:/.test(rel))) process.exit(1);
+  process.stdout.write(rel);
+' "$KIRO_DIR/agents" "$ZENSU_HOME/prompts")" || {
+  echo "FATAL: no relative path from $KIRO_DIR/agents to $ZENSU_HOME/prompts (kiro-cli >= 3.1 rejects absolute agent prompt URIs) — use --scope user or a workspace on the same drive as \$HOME" >&2
+  exit 1
+}
 
 say "zensu-kiro installer — version $(cat "$SRC/VERSION" 2>/dev/null || echo '?') -> scope=$SCOPE$([ "$DRY" -eq 1 ] && echo ' (dry-run)')"
 

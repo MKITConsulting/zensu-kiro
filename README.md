@@ -49,7 +49,9 @@ kiro-cli chat --agent zensu
 `install.sh` flags: `--scope user|workspace` · `--dry-run` · `--force` ·
 `--set-default|--no-default` · `--uninstall`. It is idempotent (manifest with
 per-file sha256), never stomps user-modified files (SKIP + warn), and uninstalls
-only what it installed. Zensu data access goes through the `zensu` CLI you
+only what it installed. Agent files that kiro-cli 3.1+ upgraded in place (it keeps
+the original as `<name>.json.bak`) still count as unmodified and get updated.
+Zensu data access goes through the `zensu` CLI you
 installed in step 1 — the hosted MCP server is no longer wired into the plugin.
 
 ### Kiro IDE (Power)
