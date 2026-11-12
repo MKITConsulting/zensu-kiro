@@ -3,7 +3,7 @@
 # banner: user-facing, must report the version from the repo VERSION file and
 #         advertise /zensu-x slash skills (no Codex $zensu-x syntax).
 # primer: model-facing additionalContext -> plain stdout via shim, /zensu-x names.
-# pulse:  must persist the plugin root to ~/.zensu/plugin-root (skills depend on it).
+# pulse:  the default profile persists the plugin root to ~/.zensu/plugin-root.
 # capture-sid: must cache the payload session_id under <cwd>/.zensu/state/.
 set -u
 
@@ -16,6 +16,8 @@ command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 unset CLAUDE_PROJECT_DIR 2>/dev/null || true
+# This suite covers the default profile; explicit overrides have their own suite.
+unset KIRO_HOME
 mkdir -p "$TMP/home"
 export HOME="$TMP/home"
 SHIM="$ROOT/hooks/kiro/kiro-shim.sh"

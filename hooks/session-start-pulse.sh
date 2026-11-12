@@ -5,10 +5,14 @@ set -u
 : "${CLAUDE_PLUGIN_ROOT:=${ZENSU_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}}}"
 source "${CLAUDE_PLUGIN_ROOT}/hooks/lib/zensu-config.sh"
 
-mkdir -p "$HOME/.zensu"
-current="$(cat "$HOME/.zensu/plugin-root" 2>/dev/null || true)"
-if [ "$current" != "$CLAUDE_PLUGIN_ROOT" ]; then
-  printf '%s\n' "$CLAUDE_PLUGIN_ROOT" > "$HOME/.zensu/plugin-root"
+# An explicit Kiro profile must not publish its runtime into the shared HOME.
+# Live fixtures retain the real HOME for provider auth and override KIRO_HOME.
+if [ -z "${KIRO_HOME:-}" ]; then
+  mkdir -p "$HOME/.zensu"
+  current="$(cat "$HOME/.zensu/plugin-root" 2>/dev/null || true)"
+  if [ "$current" != "$CLAUDE_PLUGIN_ROOT" ]; then
+    printf '%s\n' "$CLAUDE_PLUGIN_ROOT" > "$HOME/.zensu/plugin-root"
+  fi
 fi
 
 zensu_hook_enabled pulseSession || exit 0

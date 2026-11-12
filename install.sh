@@ -4,7 +4,7 @@
 #
 #   ~/.kiro/zensu/            hook runtime (hooks/, prompts/, VERSION, manifest)
 #   <scope>/.kiro/skills/     11 Agent-Skills-standard skills (IDE + CLI)
-#   <scope>/.kiro/agents/     4 CLI agent JSONs (rendered) + 3 IDE agent md
+#   <scope>/.kiro/agents/     CLI/IDE agents + zensu-prompts/ canonical bodies
 #   ~/.zensu/plugin-root      runtime-home pointer the skills depend on
 #   ~/.zensu/config.json      seeded from config.example.json if missing
 #
@@ -83,27 +83,27 @@ fi
 
 say() { printf '%s\n' "$*"; }
 
+# Prompt paths must remain inside the selected Kiro directory, including on
+# reinstall/uninstall. Do not follow a user-created symlink out of that tree.
+for p in "$KIRO_DIR" "$KIRO_DIR/agents" "$KIRO_DIR/agents/zensu-prompts" "$KIRO_DIR/agents/zensu-prompts"/*.md; do
+  if [ -L "$p" ]; then
+    echo "FATAL: symlink in agent prompt path: $p (preserved; use a real directory/file)" >&2
+    exit 1
+  fi
+done
+
 manifest_lookup() { # $1=manifest $2=abs path -> recorded hash or empty
   [ -f "$1" ] || return 0
-  M="$1" P="$2" node -e '
+  # The key is manifest data, not a native filesystem argument. Git Bash
+  # converts path-shaped env values for Windows Node; stdin preserves bytes.
+  printf '%s' "$2" | M="$1" node -e '
     try {
-      const m = JSON.parse(require("fs").readFileSync(process.env.M,"utf8"));
-      process.stdout.write((m.files && m.files[process.env.P]) || "");
+      const fs = require("fs");
+      const key = fs.readFileSync(0, "utf8");
+      const m = JSON.parse(fs.readFileSync(process.env.M,"utf8"));
+      process.stdout.write((m.files && m.files[key]) || "");
     } catch (_) {}
   ' 2>/dev/null
-}
-
-kiro_backup_hash() {
-  local f
-  [ -f "$1.bak" ] || return 0
-  for f in "$1".bak.*; do [ -e "$f" ] && return 0; done
-  node -e '
-    try {
-      const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-      process.exit(j && typeof j === "object" && !Array.isArray(j) && Object.prototype.hasOwnProperty.call(j, "kiroUpgrade") ? 0 : 1);
-    } catch (_) { process.exit(1); }
-  ' "$1" 2>/dev/null || return 0
-  sha "$1.bak"
 }
 
 USER_LIST="$(mktemp)"; SCOPE_LIST="$(mktemp)"
@@ -112,9 +112,9 @@ INSTALL_FAILED=0
 
 # install_file <src-abs> <dst-abs> <list-file> [render]
 install_file() {
-  local src="$1" dst="$2" list="$3" render="${4:-no}" content tmp old want recorded kiro_bak kiro_ours=0
+  local src="$1" dst="$2" list="$3" render="${4:-no}" content tmp old want recorded
   if [ "$render" = "render" ]; then
-    content="$(sed -e "s|__ZENSU_HOME__|$ZENSU_HOME|g" -e "s|__ZENSU_PROMPTS_REL__|$PROMPTS_REL|g" "$src")"
+    content="$(sed "s|__ZENSU_HOME__|$ZENSU_HOME|g" "$src")"
   else
     content="$(cat "$src")"
   fi
@@ -126,19 +126,16 @@ install_file() {
       printf '%s\t%s\n' "$dst" "$want" >> "$list"
       return 0
     fi
-    kiro_bak="$(kiro_backup_hash "$dst")"
-    if [ -n "$kiro_bak" ] && [ "$kiro_bak" = "$want" ]; then
-      say "NOOP    $dst (kiro-cli upgraded it in place)"
-      printf '%s\t%s\n' "$dst" "$want" >> "$list"
-      return 0
-    fi
     recorded="$(manifest_lookup "$USER_MANIFEST" "$dst")"
     [ -n "$recorded" ] || recorded="$(manifest_lookup "$SCOPE_MANIFEST" "$dst")"
-    [ -n "$kiro_bak" ] && [ "$kiro_bak" = "$recorded" ] && kiro_ours=1
-    if [ "$FORCE" -ne 1 ] && [ "$kiro_ours" -eq 0 ] && { { [ -n "$recorded" ] && [ "$old" != "$recorded" ]; } || [ -z "$recorded" ]; }; then
+    if [ "$FORCE" -ne 1 ] && { { [ -n "$recorded" ] && [ "$old" != "$recorded" ]; } || [ -z "$recorded" ]; }; then
       # Either the user modified a file we installed, or the file pre-existed
       # without any record of ours — never silently overwrite foreign content.
       say "SKIP    $dst (pre-existing/user-modified; --force to overwrite)"
+      case "$dst" in
+        "$KIRO_DIR/agents/"*.json)
+          say "        Kiro-migrated configs are preserved too; see docs/kiro-v3-migration.md before replacing an agent." ;;
+      esac
       # User-modified OUR file: carry the previous record forward so the guard
       # survives this upgrade's manifest rewrite. FOREIGN file (no record):
       # record NOTHING — recording its hash would make the next run treat it
@@ -146,7 +143,7 @@ install_file() {
       [ -n "$recorded" ] && printf '%s\t%s\n' "$dst" "$recorded" >> "$list"
       return 0
     fi
-    say "UPDATE  $dst$([ "$kiro_ours" -eq 1 ] && echo ' (kiro-cli upgraded it in place)')"
+    say "UPDATE  $dst"
   else
     say "CREATE  $dst"
   fi
@@ -155,7 +152,6 @@ install_file() {
   tmp="$(mktemp "$(dirname "$dst")/.zensu-install.XXXXXX")" || return 1
   if printf '%s\n' "$content" > "$tmp" && mv "$tmp" "$dst"; then
     case "$dst" in *.sh) chmod +x "$dst" ;; esac
-    [ "$kiro_ours" -eq 1 ] && rm -f "$dst.bak"
     # Record ONLY successful writes — a failed write must not poison the
     # manifest with a hash the on-disk file does not have.
     printf '%s\t%s\n' "$dst" "$want" >> "$list"
@@ -229,24 +225,6 @@ if [ "$UNINSTALL" -eq 1 ]; then
   exit 0
 fi
 
-PROMPTS_REL="$(node -e '
-  const fs = require("fs"), posix = require("path").posix;
-  const physical = p => {
-    if (process.platform === "win32") return p.replace(/\\/g, "/");
-    const rest = [];
-    for (let dir = p; ; dir = posix.dirname(dir)) {
-      try { return posix.join(fs.realpathSync(dir), ...rest); }
-      catch (_) { if (posix.dirname(dir) === dir) return p; rest.unshift(posix.basename(dir)); }
-    }
-  };
-  const rel = posix.relative(physical(process.argv[1]), physical(process.argv[2]));
-  if (!rel || (process.platform === "win32" && /(^|\/)[A-Za-z]:/.test(rel))) process.exit(1);
-  process.stdout.write(rel);
-' "$KIRO_DIR/agents" "$ZENSU_HOME/prompts")" || {
-  echo "FATAL: no relative path from $KIRO_DIR/agents to $ZENSU_HOME/prompts (kiro-cli >= 3.1 rejects absolute agent prompt URIs) — use --scope user or a workspace on the same drive as \$HOME" >&2
-  exit 1
-}
-
 say "zensu-kiro installer — version $(cat "$SRC/VERSION" 2>/dev/null || echo '?') -> scope=$SCOPE$([ "$DRY" -eq 1 ] && echo ' (dry-run)')"
 
 # 1) runtime home — always user-level (hook command paths are absolute), always
@@ -260,16 +238,42 @@ install_file "$SRC/docs/ai-work-capture.md" "$ZENSU_HOME/docs/ai-work-capture.md
 install_file "$SRC/docs/cli-install-update.md" "$ZENSU_HOME/docs/cli-install-update.md" "$USER_LIST"
 install_file "$SRC/VERSION" "$ZENSU_HOME/VERSION" "$USER_LIST"
 install_file "$SRC/config.example.json" "$ZENSU_HOME/config.example.json" "$USER_LIST"
+# Keep the legacy runtime copies for preserved old agent configs. They are not
+# the prompt location used by newly rendered agents (V3 rejects absolute URIs).
 while IFS= read -r f; do
   install_file "$f" "$ZENSU_HOME/prompts/$(basename "$f")" "$USER_LIST"
 done < <(find "$SRC/agents/prompts" -type f -name '*.md' | sort)
 
 # 2) skills + agents — into the selected scope, recorded in the scope manifest
 while IFS= read -r f; do
+  install_file "$f" "$KIRO_DIR/agents/zensu-prompts/$(basename "$f")" "$SCOPE_LIST"
+done < <(find "$SRC/agents/prompts" -type f -name '*.md' | sort)
+while IFS= read -r f; do
   rel="${f#"$SRC"/skills/}"
   install_file "$f" "$KIRO_DIR/skills/$rel" "$SCOPE_LIST"
 done < <(find "$SRC/skills" -type f | sort)
 while IFS= read -r f; do
+  # A clean legacy JSON can still use a customized runtime prompt. Switching
+  # its URI automatically would silently stop using those edits. Preserve the
+  # config and its ownership record until the user migrates that prompt.
+  prompt_name="$(basename "$f" .json)"
+  [ "$prompt_name" != "zensu" ] || prompt_name="zensu-orchestrator"
+  legacy_prompt="$ZENSU_HOME/prompts/$prompt_name.md"
+  agent_dst="$KIRO_DIR/agents/$(basename "$f")"
+  if [ -f "$agent_dst" ] && [ -f "$legacy_prompt" ] &&
+      [ "$(sha "$legacy_prompt")" != "$(sha "$SRC/agents/prompts/$prompt_name.md")" ] &&
+      printf 'file://%s' "$legacy_prompt" | node -e '
+        try {
+          const fs = require("fs");
+          const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          process.exit(config.prompt === fs.readFileSync(0, "utf8") ? 0 : 1);
+        } catch (_) { process.exit(1); }
+      ' "$agent_dst"; then
+    say "SKIP    $agent_dst (customized legacy prompt; see docs/kiro-v3-migration.md)"
+    recorded="$(manifest_lookup "$SCOPE_MANIFEST" "$agent_dst")"
+    [ -z "$recorded" ] || printf '%s\t%s\n' "$agent_dst" "$recorded" >> "$SCOPE_LIST"
+    continue
+  fi
   install_file "$f" "$KIRO_DIR/agents/$(basename "$f")" "$SCOPE_LIST" render
 done < <(find "$SRC/agents/cli" -type f -name '*.json' | sort)
 while IFS= read -r f; do

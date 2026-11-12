@@ -1,7 +1,7 @@
 {
   "name": "zensu",
   "description": "Zensu PLM orchestrator — features as first-class citizens. Default agent carrying the zensu hooks: TDD phase-gate, CLI write-gate, shell witness, review-chain enforcement.",
-  "prompt": "file://__ZENSU_PROMPTS_REL__/zensu-orchestrator.md",
+  "prompt": "file://./zensu-prompts/zensu-orchestrator.md",
   "tools": ["@builtin"],
   "allowedTools": [
     "read",
@@ -14,7 +14,7 @@
   "includeMcpJson": false,
   "resources": [
     "skill://~/.kiro/skills/zensu-*/SKILL.md",
-    "file://__ZENSU_HOME__/prompts/zensu-orchestrator.md"
+    "file://./zensu-prompts/zensu-orchestrator.md"
   ],
   "toolsSettings": {
     "subagent": {

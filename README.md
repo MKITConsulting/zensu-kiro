@@ -1,6 +1,6 @@
 # zensu-kiro
 
-![version](https://img.shields.io/badge/version-0.7.3-blue)
+![version](https://img.shields.io/badge/version-0.7.5-blue)
 ![hosts](https://img.shields.io/badge/hosts-Kiro%20IDE%20%E2%89%A50.9%20%C2%B7%20Kiro%20CLI%20%E2%89%A52.6-purple)
 ![license](https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-green)
 
@@ -49,10 +49,13 @@ kiro-cli chat --agent zensu
 `install.sh` flags: `--scope user|workspace` · `--dry-run` · `--force` ·
 `--set-default|--no-default` · `--uninstall`. It is idempotent (manifest with
 per-file sha256), never stomps user-modified files (SKIP + warn), and uninstalls
-only what it installed. Agent files that kiro-cli 3.1+ upgraded in place (it keeps
-the original as `<name>.json.bak`) still count as unmodified and get updated.
-Zensu data access goes through the `zensu` CLI you
+only what it installed. Zensu data access goes through the `zensu` CLI you
 installed in step 1 — the hosted MCP server is no longer wired into the plugin.
+
+Kiro CLI V3 uses scope-local prompt files and relative agent URIs. For already
+migrated or customized agent configs, follow the [safe V3 migration guide](docs/kiro-v3-migration.md)
+before replacing skipped files. Launch the V3 harness explicitly with
+`kiro-cli chat --v3 --agent zensu`.
 
 ### Kiro IDE (Power)
 

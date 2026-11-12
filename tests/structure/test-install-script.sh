@@ -4,7 +4,7 @@
 #   fresh install   -> runtime home ~/.kiro/zensu (hooks, prompts, VERSION,
 #                      manifest.json {version, files} with sha256 + absolute
 #                      destinations), skills, agents (rendered: zero
-#                      __ZENSU_*__ leftovers), ~/.zensu/plugin-root + config
+#                      __ZENSU_HOME__ leftovers), ~/.zensu/plugin-root + config
 #   idempotency     -> second run changes nothing (portable mtime via node)
 #   user edits      -> a user-modified installed file is SKIPped on EVERY
 #                      subsequent upgrade (guard must survive the manifest
@@ -27,9 +27,13 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 mt() { node -e 'console.log(require("fs").statSync(process.argv[1]).mtimeMs)' "$1" 2>/dev/null; }
+file_hash() { node -e 'console.log(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
+export ZENSU_CONFIG_DIR="$TMP/empty-cli"
+export ZENSU_API_URL="http://127.0.0.1:9"
+export ZENSU_NO_UPDATE_CHECK=1
 mkdir -p "$HOME/.kiro/settings"
 
 INSTALL="$ROOT/install.sh"
@@ -56,7 +60,7 @@ cmp -s "$ROOT/docs/cli-install-update.md" "$HOME/.kiro/zensu/docs/cli-install-up
 [ -f "$HOME/.kiro/agents/zensu.json" ] && ok "CLI agents installed" || bad "CLI agents missing"
 [ -f "$HOME/.kiro/agents/zensu-plm.md" ] && ok "IDE agents installed" || bad "IDE agents missing"
 [ -f "$HOME/.kiro/zensu/hooks/plan-approved-delegate.sh" ] && bad "unwired plan-approved hook installed to runtime" || ok "unwired plan-approved hook excluded from runtime"
-grep -rE "__ZENSU_[A-Z_]+__" "$HOME/.kiro/agents" >/dev/null 2>&1 && bad "__ZENSU_*__ leftovers in agents" || ok "placeholders fully rendered"
+grep -r "__ZENSU_HOME__" "$HOME/.kiro/agents" >/dev/null 2>&1 && bad "__ZENSU_HOME__ leftovers in agents" || ok "placeholder fully rendered"
 grep -q "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" "$HOME/.kiro/agents/zensu.json" && ok "hook commands point at runtime home" || bad "hook command paths wrong"
 [ "$(cat "$HOME/.zensu/plugin-root" 2>/dev/null)" = "$HOME/.kiro/zensu" ] && ok "plugin-root written" || bad "plugin-root wrong"
 [ -f "$HOME/.zensu/config.json" ] && ok "config seeded" || bad "config not seeded"
@@ -87,11 +91,11 @@ M2="$(mt "$HOME/.kiro/agents/zensu.json")"
 
 # 4) user-modified file is SKIPped — and the guard SURVIVES further upgrades
 printf '\n# user tweak\n' >> "$HOME/.kiro/skills/zensu-help/SKILL.md"
-S1="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S1="$(file_hash "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (1st upgrade)" || bad "no SKIP warning (1st upgrade)"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
-S3="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S3="$(file_hash "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 [ "$S1" = "$S3" ] && ok "user-modified file preserved across TWO upgrades" || bad "guard lost after manifest rewrite (2nd upgrade overwrote)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (2nd upgrade)" || bad "no SKIP warning (2nd upgrade)"
 

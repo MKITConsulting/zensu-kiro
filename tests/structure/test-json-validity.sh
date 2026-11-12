@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # S13 — every JSON artifact must parse: CLI agent templates (after substituting
-# the __ZENSU_HOME__ and __ZENSU_PROMPTS_REL__ placeholders) and config.example.json.
+# the __ZENSU_HOME__ placeholder) and config.example.json.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -22,7 +22,7 @@ FOUND=0
 for f in "$ROOT"/agents/cli/*.json; do
   [ -f "$f" ] || continue
   FOUND=1
-  if node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8").replace(/__ZENSU_HOME__/g,"/tmp/zensu-home").replace(/__ZENSU_PROMPTS_REL__/g,"../zensu/prompts"))' "$f" 2>/dev/null; then
+  if node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8").replace(/__ZENSU_HOME__/g,"/tmp/zensu-home"))' "$f" 2>/dev/null; then
     ok "agents/cli/$(basename "$f") parses (substituted)"
   else
     bad "agents/cli/$(basename "$f") invalid JSON"

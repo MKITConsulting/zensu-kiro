@@ -6,6 +6,18 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-11-11
+
+### Fixed
+
+- **runtime**: Preserve global pointer for isolated Kiro profiles (#40)
+
+## [0.7.4] - 2026-11-11
+
+### Fixed
+
+- **installer**: Keep Kiro V3 prompts within each install scope (#37)
+
 ## [0.7.3] - 2026-11-04
 
 ### Fixed
