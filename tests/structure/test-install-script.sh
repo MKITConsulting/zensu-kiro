@@ -27,9 +27,13 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$*"; }
 
 command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 mt() { node -e 'console.log(require("fs").statSync(process.argv[1]).mtimeMs)' "$1" 2>/dev/null; }
+file_hash() { node -e 'console.log(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
+export ZENSU_CONFIG_DIR="$TMP/empty-cli"
+export ZENSU_API_URL="http://127.0.0.1:9"
+export ZENSU_NO_UPDATE_CHECK=1
 mkdir -p "$HOME/.kiro/settings"
 
 INSTALL="$ROOT/install.sh"
@@ -87,11 +91,11 @@ M2="$(mt "$HOME/.kiro/agents/zensu.json")"
 
 # 4) user-modified file is SKIPped — and the guard SURVIVES further upgrades
 printf '\n# user tweak\n' >> "$HOME/.kiro/skills/zensu-help/SKILL.md"
-S1="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S1="$(file_hash "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (1st upgrade)" || bad "no SKIP warning (1st upgrade)"
 OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"
-S3="$(shasum "$HOME/.kiro/skills/zensu-help/SKILL.md" | cut -d' ' -f1)"
+S3="$(file_hash "$HOME/.kiro/skills/zensu-help/SKILL.md")"
 [ "$S1" = "$S3" ] && ok "user-modified file preserved across TWO upgrades" || bad "guard lost after manifest rewrite (2nd upgrade overwrote)"
 printf '%s' "$OUT" | grep -qi "skip" && ok "skip warned (2nd upgrade)" || bad "no SKIP warning (2nd upgrade)"
 
