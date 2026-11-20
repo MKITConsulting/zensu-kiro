@@ -53,6 +53,11 @@ OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && ok "runtime home has kiro-shim" || bad "kiro-shim not installed"
 [ -f "$HOME/.kiro/zensu/hooks/lib/zensu-log.sh" ] && ok "runtime home has libs" || bad "libs not installed"
 cmp -s "$ROOT/docs/cli-install-update.md" "$HOME/.kiro/zensu/docs/cli-install-update.md" && ok "CLI update guide installed unchanged" || bad "CLI update guide missing or transformed"
+cmp -s "$ROOT/docs/documentation-guide.md" "$HOME/.kiro/zensu/docs/documentation-guide.md" && ok "documentation guide installed unchanged under the plugin root" || bad "documentation guide missing or transformed under the plugin root"
+cmp -s "$ROOT/docs/tdd-manager-workflow.md" "$HOME/.kiro/zensu/docs/tdd-manager-workflow.md" && ok "TDD workflow reference installed unchanged under the plugin root" || bad "TDD workflow reference missing or transformed under the plugin root"
+cmp -s "$ROOT/README.md" "$HOME/.kiro/zensu/README.md" && ok "README installed unchanged under the plugin root" || bad "README missing or transformed under the plugin root"
+cmp -s "$ROOT/CHANGELOG.md" "$HOME/.kiro/zensu/CHANGELOG.md" && ok "CHANGELOG installed unchanged under the plugin root" || bad "CHANGELOG missing or transformed under the plugin root"
+cmp -s "$ROOT/LICENSE" "$HOME/.kiro/zensu/LICENSE" && ok "LICENSE installed unchanged under the plugin root" || bad "LICENSE missing or transformed under the plugin root"
 [ -f "$HOME/.kiro/zensu/prompts/zensu-orchestrator.md" ] && ok "prompts installed" || bad "prompts missing"
 [ -f "$HOME/.kiro/zensu/VERSION" ] && ok "VERSION installed" || bad "VERSION missing"
 [ -f "$HOME/.kiro/zensu/manifest.json" ] && ok "manifest written" || bad "manifest missing"
@@ -67,7 +72,7 @@ grep -q "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" "$HOME/.kiro/agents/zensu.js
 
 # 2b) CLI re-home: no hosted MCP wiring is left behind by a fresh install
 [ -f "$HOME/.kiro/settings/mcp.json" ] && bad "installer wrote ~/.kiro/settings/mcp.json (MCP wiring retired)" || ok "no ~/.kiro/settings/mcp.json written"
-grep -rq "mcp.zensu.dev" "$HOME/.kiro" 2>/dev/null && bad "fresh install references mcp.zensu.dev" || ok "fresh install never references mcp.zensu.dev"
+grep -rq --exclude=README.md "mcp.zensu.dev" "$HOME/.kiro" 2>/dev/null && bad "fresh install references mcp.zensu.dev outside the README's retirement note" || ok "fresh install never references mcp.zensu.dev outside the README's retirement note"
 
 # manifest is {version, files} only — no retired mcpFile/mcpUrl fields
 MAN_SHAPE="$(node -e '

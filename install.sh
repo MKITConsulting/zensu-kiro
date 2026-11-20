@@ -236,6 +236,11 @@ while IFS= read -r f; do
 done < <(find "$SRC/hooks" -type f \( -name '*.sh' -o -name '*.js' \) ! -name 'plan-approved-delegate.sh' | sort)
 install_file "$SRC/docs/ai-work-capture.md" "$ZENSU_HOME/docs/ai-work-capture.md" "$USER_LIST"
 install_file "$SRC/docs/cli-install-update.md" "$ZENSU_HOME/docs/cli-install-update.md" "$USER_LIST"
+install_file "$SRC/docs/documentation-guide.md" "$ZENSU_HOME/docs/documentation-guide.md" "$USER_LIST"
+install_file "$SRC/docs/tdd-manager-workflow.md" "$ZENSU_HOME/docs/tdd-manager-workflow.md" "$USER_LIST"
+install_file "$SRC/README.md" "$ZENSU_HOME/README.md" "$USER_LIST"
+install_file "$SRC/CHANGELOG.md" "$ZENSU_HOME/CHANGELOG.md" "$USER_LIST"
+install_file "$SRC/LICENSE" "$ZENSU_HOME/LICENSE" "$USER_LIST"
 install_file "$SRC/VERSION" "$ZENSU_HOME/VERSION" "$USER_LIST"
 install_file "$SRC/config.example.json" "$ZENSU_HOME/config.example.json" "$USER_LIST"
 # Keep the legacy runtime copies for preserved old agent configs. They are not

@@ -52,7 +52,7 @@ Execute these phases in order. Present results to the user after each phase and 
    - **Source files:** `*.go`, `*.ts`, `*.tsx`, `*.py`, `*.java`, `*.rs` (excluding test files)
    - **Doc files:** `README*`, `docs/**/*.md`, `*.rst`, `CHANGELOG*`
 4. Group files by module/package and extract feature candidates
-5. **Populate each candidate's three detection arrays — `detectedSourceFiles`, `detectedTestFiles`, `detectedDocFiles`.** These arrays are the *only* data the scan apply uses to link artifacts — it links exactly what you pass, so an empty array links zero. Never leave `detectedTestFiles` empty by omission: an empty array must mean "globbed and found none," not "skipped." Note: `detectedDocFiles` links **existing** doc files in the repo (READMEs, `docs/*.md`) — it does not generate new documentation. Authoring new wiki docs for discovered features is a separate, code-grounded task: see `docs/documentation-guide.md` (read the source, never dump feature metadata).
+5. **Populate each candidate's three detection arrays — `detectedSourceFiles`, `detectedTestFiles`, `detectedDocFiles`.** These arrays are the *only* data the scan apply uses to link artifacts — it links exactly what you pass, so an empty array links zero. Never leave `detectedTestFiles` empty by omission: an empty array must mean "globbed and found none," not "skipped." Note: `detectedDocFiles` links **existing** doc files in the repo (READMEs, `docs/*.md`) — it does not generate new documentation. Authoring new wiki docs for discovered features is a separate, code-grounded task: see the plugin's `docs/documentation-guide.md` under the plugin root (the directory named in `~/.zensu/plugin-root`, normally `~/.kiro/zensu`; read the source, never dump feature metadata).
 6. **Tests are co-located — glob them per candidate.** Tests live in the same directories as a feature's source files. For each candidate, after collecting `detectedSourceFiles`, glob the test-file patterns from step 3 within those same directories *and* their sibling test dirs (`test/`, `tests/`, `__tests__/`, `spec/`, `specs/`), and assign every match to that candidate's `detectedTestFiles`. A capability feature spanning multiple modules collects tests from all of its source dirs.
 7. **Docs are co-located too — glob them per candidate.** Apply the same rigor to docs as to tests: for each candidate, glob the doc-file patterns from step 3 (`README*`, `docs/**/*.md`, `*.rst`, `CHANGELOG*`) in the candidate's source dirs and the repo root, and assign every match to `detectedDocFiles`. Linking existing docs is first-class scan data, not a bonus — an empty `detectedDocFiles` must mean "globbed and found none," not "skipped."
 8. **For large repos (>500 files):** Scan only top-level modules, max 3 directory levels deep. Ask the user if a deeper subdirectory scan is desired. Still glob the test and doc dirs at each scanned level — capping breadth must not silently drop tests or docs.
@@ -77,7 +77,7 @@ Execute these phases in order. Present results to the user after each phase and 
 **Doc-file completeness (treat like the test-file rule, not a bonus):**
 - Every candidate MUST have its co-located docs detected (Phase 2, step 7). Populate `detectedDocFiles` with the same rigor as `detectedTestFiles` — the scan apply links exactly what you pass, so an omitted array links zero docs.
 - An empty `detectedDocFiles` is acceptable ONLY after globbing the candidate's source dirs + repo root confirms genuinely zero docs — never as a default for "didn't look."
-- `detectedDocFiles` links **existing** docs only (READMEs, `docs/*.md`). It never generates new documentation — authoring docs for a feature with zero docs is a separate task flagged in Phase 6 (see `docs/documentation-guide.md`).
+- `detectedDocFiles` links **existing** docs only (READMEs, `docs/*.md`). It never generates new documentation — authoring docs for a feature with zero docs is a separate task flagged in Phase 6 (see `docs/documentation-guide.md` under the plugin root).
 
 **Never create candidates for:**
 - CI/CD configuration (`.github/`, `.gitlab-ci.yml`, `Jenkinsfile`)
@@ -273,7 +273,7 @@ This mirrors `/zensu-bootstrap` Step 2.
 3. **Doc-gap report.** List the created/enriched features with zero docs (empty
    `detectedDocFiles`). Recommend `/zensu-implement` to author code-grounded docs
    for them — ghost-scan links existing docs but never generates new ones
-   (`docs/documentation-guide.md`).
+   (`docs/documentation-guide.md` under the plugin root).
 4. Recommend next steps:
    - `/zensu-implement` for feature implementation
    - `/zensu-security-review` for security classification
