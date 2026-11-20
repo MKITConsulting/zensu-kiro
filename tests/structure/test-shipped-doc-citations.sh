@@ -95,6 +95,22 @@ else
   bad "the scan checked nothing (docs=${DOCS:-?} tokens=${TOKENS:-?})"
 fi
 
+GUIDE="$(node -e '
+const cp = require("node:child_process");
+cp.spawnSync = () => ({ error: Object.assign(new Error("spawnSync zensu ENOENT"), { code: "ENOENT" }) });
+const fs = require("node:fs");
+const path = require("node:path");
+const result = require(process.argv[1]).check(process.argv[2], 8000);
+const cited = /other users follow (.+?)\. Do not replace/.exec(result.guidance || "");
+const ok = cited && path.isAbsolute(cited[1]) && fs.existsSync(cited[1]);
+process.stdout.write(ok ? path.relative(fs.realpathSync(process.argv[3]), fs.realpathSync(cited[1])).split(path.sep).join("/") : "");
+' "$HOME/.kiro/zensu/hooks/lib/ai-work-preflight-v1.js" "$TMP" "$HOME/.kiro/zensu" 2>/dev/null)"
+if [ "$GUIDE" = "docs/cli-install-update.md" ]; then
+  ok "the installed preflight hook names the CLI guide by an absolute path inside the plugin root"
+else
+  bad "the installed preflight hook does not name an existing CLI guide inside the plugin root (got: ${GUIDE:-none})"
+fi
+
 HEADER="$(grep -m1 '^| Question type |' "$ROOT/skills/zensu-help/SKILL.md")"
 if printf '%s' "$HEADER" | grep -qi 'plugin root'; then
   ok "zensu-help resolves its routing-table sources at the plugin root"
