@@ -6,6 +6,12 @@ All notable changes to zensu-kiro are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-11-20
+
+### Fixed
+
+- **tdd**: Treat a spec-named dependency as a precondition, not consent (#36)
+
 ## [0.7.5] - 2026-11-11
 
 ### Fixed
