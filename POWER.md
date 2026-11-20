@@ -65,7 +65,7 @@ enforced.
 The hard gates are CLI-tier: Kiro CLI hooks let the zensu agent **block**
 premature edits (exit-2 preToolUse) and **refuse to stop** before the review
 chain ends. In the IDE these disciplines are steering/skill-driven (advisory)
-until IDE pre-tool-use blocking is verified. Full matrix: README.md.
+until IDE pre-tool-use blocking is verified. Full matrix: `README.md` under the plugin root (normally `~/.kiro/zensu`).
 
 ## AI work capture
 
