@@ -53,6 +53,7 @@ OUT="$(bash "$INSTALL" --scope user --no-default 2>&1)"; RC=$?
 [ -f "$HOME/.kiro/zensu/hooks/kiro/kiro-shim.sh" ] && ok "runtime home has kiro-shim" || bad "kiro-shim not installed"
 [ -f "$HOME/.kiro/zensu/hooks/lib/zensu-log.sh" ] && ok "runtime home has libs" || bad "libs not installed"
 cmp -s "$ROOT/docs/cli-install-update.md" "$HOME/.kiro/zensu/docs/cli-install-update.md" && ok "CLI update guide installed unchanged" || bad "CLI update guide missing or transformed"
+cmp -s "$ROOT/docs/documentation-guide.md" "$HOME/.kiro/zensu/docs/documentation-guide.md" && ok "documentation guide installed unchanged under the plugin root" || bad "documentation guide missing or transformed under the plugin root"
 [ -f "$HOME/.kiro/zensu/prompts/zensu-orchestrator.md" ] && ok "prompts installed" || bad "prompts missing"
 [ -f "$HOME/.kiro/zensu/VERSION" ] && ok "VERSION installed" || bad "VERSION missing"
 [ -f "$HOME/.kiro/zensu/manifest.json" ] && ok "manifest written" || bad "manifest missing"
