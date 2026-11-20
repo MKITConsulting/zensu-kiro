@@ -17,7 +17,7 @@ Implement a tracked Zensu feature end-to-end. Loads feature context and security
 
 - Zensu CLI installed (`curl -fsSL https://zensu.dev/install.sh | sh`) and authenticated (`zensu auth login`)
 - `ZENSU_API_KEY` environment variable set
-- A feature ID (KEY-N format, e.g. ZEN-42, or UUID) to implement
+- A feature ID to implement. The user may name it as a `KEY-N` id (e.g. `ZEN-42`), a slug or a UUID, but the `zensu` commands below take the feature's UUID, written `<feature-uuid>`: a `KEY-N` id or a slug fails with HTTP 400 `invalid feature id`. Step 1 resolves the ID first.
 
 Every command accepts `--json` for machine-readable output; run `zensu <noun> <verb> --help` for the full flag set.
 
@@ -27,10 +27,10 @@ Every command accepts `--json` for machine-readable output; run `zensu <noun> <v
 
 ### Step 1: Load Feature Context
 
-1. Ask the user for the feature ID
-2. Run `zensu features get <feature-id> --json` to load the full feature details (title, description, status, priority, product, component, security classification). The JSON response includes the `product_id` and `component_id` (when set) that Step 5 needs, and the `feature_scope` and `estimated_effort` that Step 6 picks the doc type from.
-3. Run `zensu security analyze <feature-id>` to load the security context (classification, data sensitivity, OWASP tags, compliance requirements, score)
-4. Run `zensu mocks list <feature-id>` to discover per-feature UI mocks. For each **HTML** mock, pull its markup with `zensu mocks get <feature-id> <mock-id> --raw` and keep it as the visual/structural target the implementation must match. For **image** mocks, note their titles and that a visual reference exists (the raw bytes are not actionable as text). If no mocks are returned, this feature has none — continue normally; mocks are optional context, never a blocker.
+1. Ask the user for the feature ID. If it is not a UUID, resolve it before the first feature call: `zensu products list --json` → the product whose `feature_key` matches the `KEY` prefix (a slug has none: ask the user which product it belongs to) → `zensu features list --product <product-id> --json`, then match `number` for a `KEY-N` id or `slug` for a slug. The matching entry's `id` is the `<feature-uuid>` every later step passes. If no entry or more than one matches, ask the user instead of guessing.
+2. Run `zensu features get <feature-uuid> --json` to load the full feature details (title, description, status, priority, product, component, security classification). The JSON response includes the `product_id` and `component_id` (when set) that Step 5 needs, and the `feature_scope` and `estimated_effort` that Step 6 picks the doc type from.
+3. Run `zensu security analyze <feature-uuid>` to load the security context (classification, data sensitivity, OWASP tags, compliance requirements, score)
+4. Run `zensu mocks list <feature-uuid>` to discover per-feature UI mocks. For each **HTML** mock, pull its markup with `zensu mocks get <feature-uuid> <mock-id> --raw` and keep it as the visual/structural target the implementation must match. For **image** mocks, note their titles and that a visual reference exists (the raw bytes are not actionable as text). If no mocks are returned, this feature has none — continue normally; mocks are optional context, never a blocker.
 5. Run `zensu design context <product-id>` to load the product/component design system (Design.md guidance + shared CSS + image-asset references), taking `<product-id>` from the `product_id` in Step 2's JSON output; when that response also carries a `component_id`, add `--component <component-id>`. The implementation must conform to this design system. If the product has no design context, continue normally; the design system is optional context, never a blocker.
 6. Read and follow [Load and hydrate feature context](references/knowledge-context.md) before planning. Reuse a supplied automatic package for this feature and task; otherwise check `zensu knowledge context-pack --help`, load `zensu knowledge context-pack <feature-ref> --json --agent kiro`, retain the returned `load_id`, inspect truncation, and hydrate relevant real items with `zensu knowledge get <item-id> --json --context-load <load-id>`. Supplement with `zensu knowledge search --query "<feature title + key terms>" --json`; file references require actual reads from the authorized checkout.
 7. Present a summary to the user:
@@ -74,7 +74,7 @@ At the end of the workflow (Phase 6) it marks implementation complete and spawns
 
 ### Step 4: Link Tests
 
-For each test file written (by the /zensu-tdd workflow or manually), run `zensu link test <feature-id>` with:
+For each test file written (by the /zensu-tdd workflow or manually), run `zensu link test <feature-uuid>` with:
 - `--test-type` (required): unit | integration | e2e | security | performance | accessibility
 - `--file` (required): Path to the test file
 - `--function` (optional): Specific test function
@@ -82,7 +82,7 @@ For each test file written (by the /zensu-tdd workflow or manually), run `zensu 
 
 ### Step 5: Link Source Files
 
-Run `zensu link source <feature-id>` to map implementation files to the feature. Pass each file with a repeatable `--file` flag in the form `path[:type[:language[:linecount]]]` (type: source | test | config | migration | docs | generated | other). For cross-feature mapping, run `zensu link source` once per target feature id.
+Run `zensu link source <feature-uuid>` to map implementation files to the feature. Pass each file with a repeatable `--file` flag in the form `path[:type[:language[:linecount]]]` (type: source | test | config | migration | docs | generated | other). For cross-feature mapping, run `zensu link source` once per target feature, with that feature's UUID resolved as in Step 1.
 
 ### Step 6: Documentation
 
@@ -100,7 +100,7 @@ even a confidential backend feature, and for it an `api_reference` doc alone lea
 `documentation must be complete before release` in place. Run the items below once per
 required type, with that type as every `<type>` and `--doc-type`:
 
-1. Run `zensu doc gen-context <feature-id> --doc-type <type>` for the context *map*
+1. Run `zensu doc gen-context <feature-uuid> --doc-type <type>` for the context *map*
    (source-file paths, symbols, security posture), not the source.
 2. **Read the real source files it names** (the files linked in Step 5). The map
    is not the territory.
@@ -111,7 +111,7 @@ required type, with that type as every `<type>` and `--doc-type`:
 4. Publish with `zensu wiki create --product <product-id> --title <title> --content <markdown>`
    (plus `--entity-type`, `--entity-id`, `--doc-type`, `--audience`).
 
-Then register the doc with `zensu link docs <feature-id>` (updates the feature's docs score):
+Then register the doc with `zensu link docs <feature-uuid>` (updates the feature's docs score):
 - `--doc-type` (required): the required type this pass documents, one of user_facing | api_reference | tutorial | adr | internal | release_notes | migration_guide | overview
 - `--title` (optional): Document title
 - `--file` (optional): Path to the doc file
@@ -122,7 +122,7 @@ Then register the doc with `zensu link docs <feature-id>` (updates the feature's
 Run `zensu link docs` alone (no wiki page) only for docs that already live in the repo
 or at an external URL.
 
-After the last required type, read `docs_complete` from `zensu features get <feature-id>`.
+After the last required type, read `docs_complete` from `zensu features get <feature-uuid>`.
 When it is not `true`, compare the doc types linked so far with the guide's table and
 author the missing one; if every required type is linked and it is still not `true`,
 report the docs as open, never as complete.
@@ -135,14 +135,14 @@ superseded before creating a new one`. A new top-level feature starts with an op
 so a first implementation belongs to the revision that is already open. Check before you
 create:
 
-1. Re-read the feature with `zensu features get <feature-id>` and take
+1. Re-read the feature with `zensu features get <feature-uuid>` and take
    `active_revision_id` and `stage` from it.
 2. **A revision is open** when `active_revision_id` is set and `stage` is neither
    `shipped` nor `superseded`. Create nothing: this work belongs to that revision, which
    ships when the feature is released. Report "Revision: open revision
    `<active_revision_id>` (stage `<stage>`) holds this work; no new revision created".
 3. **No revision is open** (`stage` is `shipped` or `superseded`, or `active_revision_id`
-   is null): run `zensu features revision <feature-id>` to version the implementation.
+   is null): run `zensu features revision <feature-uuid>` to version the implementation.
    If it still answers `previous revision must be released or superseded before creating
    a new one`, a revision opened in the meantime: report it as in item 2 and do not
    retry.
@@ -157,7 +157,7 @@ The flags of `zensu features revision`:
 
 ### Step 8: Validate
 
-Run `zensu security validate <feature-id>` to check if the implementation meets all security requirements for release.
+Run `zensu security validate <feature-uuid>` to check if the implementation meets all security requirements for release.
 
 Present the validation results:
 - Security score
@@ -177,7 +177,7 @@ Present a completion summary:
 
 ## Important Notes
 
-- `zensu features update` does NOT change status. Status transitions (planned -> in-progress -> testing -> released) go through `zensu features status <feature-id> <new-status>`.
+- `zensu features update` does NOT change status. Status transitions (planned -> in-progress -> testing -> released) go through `zensu features status <feature-uuid> <new-status>`.
 - Always reference the feature ID in commit messages: `feat(component): description [KEY-N]`
 - Security classification should be set BEFORE implementation (use `/zensu-security-review` if not yet set)
 - The /zensu-tdd workflow creates a plan at `.zensu/plans/{timestamp}_tdd-{feature-slug}.md` and a progress log at `${CLAUDE_PROJECT_DIR:-.}/.zensu/logs/{timestamp}_tdd-{feature-slug}.log`
@@ -186,6 +186,8 @@ Present a completion summary:
 
 | Command | Step | Purpose |
 |---------|------|---------|
+| `zensu products list` | 1 | Find the product whose `feature_key` is a `KEY-N` id's `KEY` prefix |
+| `zensu features list` | 1 | Resolve a `KEY-N` id or a slug to the feature's UUID (`number` / `slug` match) |
 | `zensu features get` | 1, 6, 7 | Load feature details; confirm `docs_complete` after linking; read the active revision's `stage` before creating one |
 | `zensu security analyze` | 1 | Load security context |
 | `zensu mocks list` | 1 | Discover per-feature UI mocks (HTML + image) |
