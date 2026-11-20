@@ -22,7 +22,7 @@ Answer questions about how Zensu (the SaaS Product Lifecycle Manager) and the ze
 
 ## Prerequisites
 
-None. This skill answers from embedded knowledge and the plugin's canonical docs already present in the repository. No MCP connection, no API key, no network required.
+None. This skill answers from embedded knowledge and the plugin's canonical docs, which the installer ships under the plugin root (the directory named in `~/.zensu/plugin-root`, normally `~/.kiro/zensu`). No MCP connection, no API key, no network required.
 
 ## Core Glossary (embedded — stable concepts)
 
@@ -52,31 +52,31 @@ TDD discipline (RED→IMPL→GREEN, FSM-gated edits, 3-retry IMPL escalation, co
 
 ## Topic Routing (live read for volatile facts)
 
-Before answering questions in the right column, `Read` the source file in the left column and quote `file:line` in the answer.
+Before answering a question of a type in the left column, `Read` its source in the right column and quote `file:line` in the answer. Resolve the plugin root once with `cat ~/.zensu/plugin-root`. A source path is relative to the plugin root unless it starts with `~/`; a workspace-scope install keeps the `~/.kiro/skills/` and `~/.kiro/agents/` files under the workspace's `.kiro/` instead.
 
-| Question type | Source to Read |
+| Question type | Source to Read (relative to the plugin root unless it starts with `~/`) |
 |---|---|
-| Plugin version | `VERSION` + `POWER.md` (frontmatter `metadata.version`) |
-| Declared skills/agents/hooks wiring | `agents/cli/zensu.json` (hooks live inside the agent config) + `skills/` dirs |
-| CLI command surface / install; plugin tool wiring | `README.md` § CLI + `zensu --help` + `agents/cli/zensu.json` (the MCP server stays live for the Zensu web app but is no longer wired into the plugin) |
+| Plugin version | `VERSION` |
+| Declared skills/agents/hooks wiring | `~/.kiro/agents/zensu.json` (hooks live inside the agent config) + `~/.kiro/skills/` dirs |
+| CLI command surface / install; plugin tool wiring | `README.md` § The zensu CLI + `zensu --help` + `~/.kiro/agents/zensu.json` (the MCP server stays live for the Zensu web app but is no longer wired into the plugin) |
 | Hook flags (`chainEnforcer`, `autoFix`, `autoFixIncludeSuggestions`, `autoFixMaxRounds`, `combinedSummary`, `pulseSession`, `sessionBanner`, `tddReminder`, `tddImplementation`, `intentRouter`, `mcpGate`, `selfReview`) | `README.md` § Configuration + `config.example.json` |
 | Context-nudge settings (`context.*`) | `config.example.json` + `hooks/user-prompt-context-nudge.sh` (inert on Kiro — see README fidelity matrix) |
 | Config resolution order, `ZENSU_CONFIG` precedence | `hooks/lib/zensu-config.sh` (header comment) |
 | Environment variables (`ZENSU_API_KEY`, `ZENSU_TDD_GATE`, `ZENSU_TEST_WITNESS`, `ZENSU_CHAIN`, `ZENSU_MCP_GATE`, `KIRO_API_KEY`) | `README.md` § Configuration + § Headless |
-| TDD FSM details, phase transitions, gate logic, three-channel logging | `docs/tdd-manager-workflow.md` + `steering/zensu-tdd-protocol.md` |
+| TDD FSM details, phase transitions, gate logic, three-channel logging | `docs/tdd-manager-workflow.md` + `~/.kiro/skills/zensu-tdd/SKILL.md` |
 | Documentation: doc types, how to write code-grounded feature/wiki docs | `docs/documentation-guide.md` |
 | Hook scripts (what each does, when it fires) | `README.md` § What you get (Hooks row) + `hooks/<script>.sh` source |
-| Pulse session lifecycle | `skills/zensu-pulse/SKILL.md` |
-| Resetting the auto-fix rounds counter / "max rounds reached" recovery | `skills/zensu-reset-review-limit/SKILL.md` + `hooks/post-review-tdd-delegate.sh` (convergence branch) |
-| Greenfield vs brownfield vs hybrid; feature build-out stages (revisions) & fan-out | Core Glossary (above) + `agents/prompts/zensu-plm.md` § Decision Rules |
+| Pulse session lifecycle | `~/.kiro/skills/zensu-pulse/SKILL.md` |
+| Resetting the auto-fix rounds counter / "max rounds reached" recovery | `~/.kiro/skills/zensu-reset-review-limit/SKILL.md` + `hooks/post-review-tdd-delegate.sh` (convergence branch) |
+| Greenfield vs brownfield vs hybrid; feature build-out stages (revisions) & fan-out | Core Glossary (above) + `~/.kiro/agents/zensu-prompts/zensu-plm.md` § Decision Rules |
 | "What changed in version X" | `CHANGELOG.md` (search for `[X.Y.Z]`) |
 | License / Permitted Purpose / Competing Use | `README.md` § License + `LICENSE` file |
 | Platform support, Windows caveats | `README.md` § Windows |
-| IDE vs CLI capability differences | `README.md` § Claude Code → Kiro fidelity matrix + `POWER.md` fidelity note |
+| IDE vs CLI capability differences | `README.md` § Claude Code → Kiro fidelity matrix |
 
 ## Response Style
 
-- Cite sources as `README.md:200` or `docs/tdd-manager-workflow.md`.
+- Cite sources by their path under the plugin root, e.g. `README.md:200` or `docs/tdd-manager-workflow.md`.
 - If the embedded glossary fully answers it → answer directly, no Read needed.
 - If a routed source applies → Read first, quote facts verbatim, cite.
 - Never invent tool names, hook names, config flags, or version numbers — verify via Read.

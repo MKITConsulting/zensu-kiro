@@ -116,6 +116,14 @@ plugin.
   `steering/zensu-conventions.md`; `agents/prompts/zensu-orchestrator.md`
   (CLI system prompt) and the POWER.md steering section are derived mirrors.
   Update order: steering first, then the two mirrors in the same commit.
+- A plugin file that a skill, agent prompt, steering file or POWER.md tells the
+  model to read must exist in an installed session: `install.sh` ships it under
+  the runtime home at its repo-relative path, and the citation names it under
+  the plugin root (the directory named in `~/.zensu/plugin-root`, normally
+  `~/.kiro/zensu`). A bare `docs/<name>.md` resolves against the user's project,
+  where it does not exist. Installed skills and agents are cited at their
+  `~/.kiro/skills/` and `~/.kiro/agents/` locations (pinned by
+  `tests/structure/test-shipped-doc-citations.sh`).
 
 ## Version bumps
 

@@ -61,7 +61,7 @@ end your turn (the stop hook backstops this):
 
 ## Configuration
 Behavior is tunable via `~/.zensu/config.json` (`hooks.*`, `context.*`,
-`logging.timestampStyle`). See the zensu-kiro README for the full reference.
+`logging.timestampStyle`). See `README.md` § Configuration under the plugin root (the directory named in `~/.zensu/plugin-root`, normally `~/.kiro/zensu`) for the full reference.
 
 ## AI work capture
 
