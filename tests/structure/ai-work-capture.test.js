@@ -286,6 +286,20 @@ test('an outdated CLI is diagnosed before any remote declaration', (t) => {
   assert.equal(fs.existsSync(file), false);
   assert.equal(state.calls.length, 0);
 });
+test('preflight guidance names the shipped install guide by absolute path and the install commands', (t) => {
+  const { options, state } = fixture(t);
+  const { INSTALL } = require(path.join(plugin, 'hooks/lib/zensu-cli-version-v1.js'));
+  const installGuide = path.join(plugin, 'docs/cli-install-update.md');
+  assert.ok(fs.existsSync(installGuide), installGuide);
+  state.missingFlag = 'review-file';
+  const outdated = capture.preflight(options);
+  assert.equal(outdated.status, 'cli_incompatible');
+  assert.ok(outdated.guidance.includes(`Homebrew users run ${INSTALL.homebrewUpgrade};`), outdated.guidance);
+  assert.ok(outdated.guidance.includes(`other users follow ${installGuide}.`), outdated.guidance);
+  const unavailable = require(path.join(plugin, 'hooks/lib/ai-work-preflight-v1.js')).check(options.workspace, 0);
+  assert.equal(unavailable.status, 'cli_unavailable');
+  for (const command of [INSTALL.homebrew, INSTALL.script, INSTALL.powershell]) assert.ok(unavailable.guidance.includes(command), unavailable.guidance);
+});
 test('CLI downgrade never changes or transmits an existing frozen pending report', (t) => {
   const { options, state, file } = fixture(t);
   capture.begin(options);
