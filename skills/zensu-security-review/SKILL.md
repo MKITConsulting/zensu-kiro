@@ -16,10 +16,10 @@ Run a comprehensive security review for a Zensu feature. Guides through classifi
 
 ## Prerequisites
 
-- Zensu CLI installed (`curl -fsSL https://zensu.dev/install.sh | sh`) and authenticated (`zensu auth login`)
+- Zensu CLI 0.22.0 or later on `PATH` (`zensu --version`), installed with `curl -fsSL https://zensu.dev/install.sh | sh` (run it again to upgrade), and authenticated (`zensu auth login`)
 - A feature ID to review. The user may name it as a `KEY-N` id (e.g. `ZEN-42`), a slug or a UUID, but every feature-scoped `zensu security` command below takes the feature's UUID, written `<feature-uuid>`: a `KEY-N` id or a slug fails with HTTP 400 `invalid feature id`. Step 1 resolves the ID first.
 
-Every command accepts `--json` for machine-readable output; run `zensu <noun> <verb> --help` for the full flag set.
+Every `zensu` command this skill runs except `zensu auth` accepts `--json` for machine-readable output; run `zensu <noun> <verb> --help` for the full flag set.
 
 ## Workflow
 
@@ -31,16 +31,18 @@ Execute these steps in order. The classification MUST be set first as all subseq
 
 Ask the user for the feature ID. If it is not a UUID, resolve it before the first feature call: `zensu products list --json` → the product whose `feature_key` matches the `KEY` prefix (a slug has none: ask the user which product it belongs to) → `zensu features list --product <product-id> --json`, then match `number` for a `KEY-N` id or `slug` for a slug. The matching entry's `id` is the `<feature-uuid>` every later step passes. If no entry or more than one matches, ask the user instead of guessing.
 
-Then run `zensu security classify <feature-uuid>` with the relevant flags:
+Next, run `zensu security analyze <feature-uuid>` to see the recorded classification and data sensitivity, and ask if changes are needed. Then run `zensu security classify <feature-uuid>` with the relevant flags:
 
-- `--classification`: public | internal | confidential | restricted
+- `--classification`: public | internal | confidential | restricted; pass only a level that keeps or raises the recorded one, and a feature without one counts as `internal`
 - `--data-sensitivity`: none | pii | financial | health | credentials
 - `--auth-required` / `--auth-type`: jwt | api-key | oauth2 | none
 - `--input-validation`, `--rate-limited`, `--encryption-at-rest`, `--encryption-in-transit`, `--audit-logged` (booleans)
-- `--threat-model-status`: not-required | pending | completed
-- `--pentest-status`: not-required | pending | passed | failed
+- `--threat-model-status`: not-required | pending
+- `--pentest-status`: not-required | pending | failed
 
-If the feature already has a classification, run `zensu security analyze <feature-uuid>` first to see the current state and ask if changes are needed.
+**Every value you set is a claim the release gate trusts.** Pass `--data-sensitivity`, `--auth-type`, a boolean such as `--auth-required` (spelled `--<flag>=true` or `--<flag>=false`), `--threat-model-status` or `--pentest-status` only when a `file:line` you read in this session shows it, or when the user stated it explicitly, and name that evidence when you present the command. Leave out every flag you have no such evidence for: the CLI sends only the flags you pass, so an omitted flag keeps the recorded value.
+
+Lowering the classification, marking the threat model `completed` and marking a pentest `passed` are decisions for an admin signed in to the Zensu web app, never for this skill: Zensu refuses each of them from `zensu security classify` with a `400`. When the evidence or the user calls for one, run no command for it; name it as an open decision for an admin, with its evidence, and hand it on with the feature's browser link (Step 6).
 
 ### Step 2: Analyze Security State
 
@@ -87,17 +89,51 @@ Present the threat model to the user with specific mitigations for each identifi
 For each recommended and implemented security test, run `zensu security add-test <feature-uuid>` with:
 - `--type` (required): auth-bypass | injection | access-control | rate-limit | input-validation | data-exposure | header-security | dependency-scan | csrf | xss | ssrf
 - `--file` (required): Path to the test file
-- `--last-run-status` (optional): passed | failed | skipped
+- `--last-run-status` (optional): passed | failed | skipped | error
 - `--owasp-id` (optional): OWASP Top 10 ID (e.g. A01:2021)
 
-### Step 6: Complete Security Review
+### Step 6: Record the Security Review
 
-Run `zensu security review <feature-uuid>` with:
-- `--reviewer` (required): Reviewer identifier (e.g. "kiro" or username)
-- `--status` (required): approved | rejected | conditional
-- `--type` (optional): manual | automated | external (default: manual)
-- `--findings` (optional): Review findings summary
-- `--conditions` (optional): Conditions for conditional approval
+The review status is the user's decision, never yours. Before anything is recorded, present the findings of Steps 2–5 (score against the required threshold, unmet requirements, threat-model highlights, linked tests and their last run status) and ask the user via a plain-text question with explicit options which outcome applies: `rejected`, `conditional` (ask for the conditions) or a clean review that finds nothing blocking. Record a review only for `rejected` or `conditional`, which reject the feature or ask for changes, and record exactly the answer; when the user declines, record nothing.
+
+A clean review records nothing. Approving a security review is a decision for an admin signed in to the Zensu web app: Zensu refuses `zensu security review --status approved` with a `400`, so never pass it. Present the findings instead, and hand the approval to an admin with the feature's browser link, together with every decision Step 1 left open. When `zensu auth status` reports `https://api.zensu.dev`, the link is `https://app.zensu.dev/products/<product-id>/features/<feature-uuid>?tab=security`, the feature's page in the hosted web app, opened on its Security tab; for another host, ask the user for the address of that instance's web app and give the same path there. `<product-id>` is the product Step 1 resolved; when the user gave a UUID, take it from the `product_id` in `zensu features get <feature-uuid> --json`.
+
+The command takes:
+- `--reviewer` (required): `kiro` when you did the analysis; the person's own identifier only when they say they reviewed it themselves
+- `--status` (required): `rejected` or `conditional`, the one the user chose
+- `--type`: `automated` with `--reviewer kiro`; `manual` only for the person's own review and `external` only for an outside review the user names. The CLI defaults to `manual`, so always pass it.
+- `--findings-file`: the file with the findings summary; `--conditions-file`: the file with the conditions, only for `conditional`. Both texts are Markdown: Zensu's Security tab renders headings, lists and code, so write structured Markdown, not one unformatted paragraph
+
+The findings and the conditions are free text and never go into the command line itself: inside double quotes the shell runs every backtick span and expands every `$NAME`, and a single quote ends at the first apostrophe. So write each one to a temporary file through a heredoc whose delimiter is quoted, and pass the file's path: with `--findings-file` and `--conditions-file` zensu-cli reads the file itself, up to 256 KiB, and refuses a missing, empty, blank or non-UTF-8 file before it sends anything. Replace `<hex>` with eight random hex digits, new for each call and the same on every line that carries it, so no line of the text can end a heredoc early; `>|` writes even under `noclobber`:
+
+```bash
+f="$(mktemp)" || exit 1
+trap 'rm -f "$f"' EXIT
+cat >| "$f" <<'ZENSU_TEXT_<hex>'
+<findings-summary>
+ZENSU_TEXT_<hex>
+zensu security review <feature-uuid> --reviewer kiro --type automated \
+  --status <status-the-user-chose> --findings-file "$f"
+```
+
+For `conditional`, write the conditions to a second file in the same call, widen the one trap to both files, and pass both:
+
+```bash
+f="$(mktemp)" || exit 1
+trap 'rm -f "$f"' EXIT
+c="$(mktemp)" || exit 1
+trap 'rm -f "$f" "$c"' EXIT
+cat >| "$f" <<'ZENSU_TEXT_<hex>'
+<findings-summary>
+ZENSU_TEXT_<hex>
+cat >| "$c" <<'ZENSU_TEXT_<hex>'
+<conditions>
+ZENSU_TEXT_<hex>
+zensu security review <feature-uuid> --reviewer kiro --type automated \
+  --status conditional --findings-file "$f" --conditions-file "$c"
+```
+
+The Kiro CLI write-gate also reads the heredoc text as commands, so write no `zensu` command into the findings or conditions; name such an operation in words. Both file flags need zensu-cli 0.22.0: when the CLI rejects either as an unknown flag, record nothing, never fall back to `--findings` or `--conditions`, and ask the user to upgrade.
 
 ### Step 7: Validate Release Readiness
 
@@ -114,7 +150,8 @@ Present a final summary:
 - Security score (before and after review)
 - Threat model highlights
 - Security tests linked
-- Review status (approved/rejected/conditional)
+- Review status (rejected, conditional, waiting for an admin's approval, or not recorded because the user declined)
+- Decisions left for an admin, with the feature's browser link
 - Release gate status (pass/fail)
 
 ## CLI Commands Used
@@ -128,7 +165,8 @@ Present a final summary:
 | `zensu security suggest-tests` | 3 | Get context for test suggestions |
 | `zensu security threat-model` | 4 | Get context for STRIDE model |
 | `zensu security add-test` | 5 | Link security tests |
-| `zensu security review` | 6 | Complete the review |
+| `zensu security review` | 6 | Record a rejected or conditional review |
+| `zensu auth status` | 6 | Read the API host that picks the browser link |
+| `zensu features get` | 6, 7 | Read the feature's `product_id` for the browser link and the posture call when the user gave a UUID |
 | `zensu security validate` | 7 | Check release gate |
-| `zensu features get` | 7 | Read the feature's `product_id` for the posture call when the user gave a UUID |
 | `zensu security posture` | 7 | Product-wide security overview |
