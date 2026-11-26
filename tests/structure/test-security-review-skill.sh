@@ -286,6 +286,10 @@ check "M21 the recipe check passes quoted-heredoc recipes and fails an unquoted 
   "$([ "$(delivers conditional "$M21_RETRAP")" = FAIL ] && echo PASS || echo FAIL)")"
 
 GATE_TOOLS="$(grep -oE -- '--workflow-begin --tools "[^"]+"' "$SKILL_MD" | head -1 | sed -E 's/.*--tools "([^"]+)"/\1/')"
+gate_env() {
+  env -u ZENSU_MCP_GATE -u ZENSU_API_URL -u ZENSU_CONFIG -u ZENSU_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR \
+    HOME="$RECIPE_DIR/gate-home" TDD_STATE_DIR="$RECIPE_DIR/gate-state" CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" "$@"
+}
 gate_rc() {
   CMD="$1" CWD="$RECIPE_DIR" node -e '
     process.stdout.write(JSON.stringify({
@@ -294,28 +298,30 @@ gate_rc() {
       cwd: process.env.CWD,
       tool_input: { command: process.env.CMD }
     }));
-  ' | HOME="$RECIPE_DIR/gate-home" TDD_STATE_DIR="$RECIPE_DIR/gate-state" env -u ZENSU_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR \
-    bash "$PLUGIN_DIR/hooks/kiro/kiro-shim.sh" pre-bash-zensu-gate.sh >/dev/null 2>&1
+  ' | gate_env bash "$PLUGIN_DIR/hooks/kiro/kiro-shim.sh" pre-bash-zensu-gate.sh >/dev/null 2>&1
   echo "$?"
 }
 window() {
-  HOME="$RECIPE_DIR/gate-home" TDD_STATE_DIR="$RECIPE_DIR/gate-state" ZENSU_PLUGIN_ROOT="$PLUGIN_DIR" env -u CLAUDE_PROJECT_DIR \
-    bash "$PLUGIN_DIR/hooks/lib/zensu-log.sh" "$@" --session security-review-recipe >/dev/null 2>&1
+  gate_env bash "$PLUGIN_DIR/hooks/lib/zensu-log.sh" "$@" --session security-review-recipe >/dev/null 2>&1
 }
 GATE_RECIPE="$(fill "$STEP6_RECIPE")"
 GATE_CONDITIONAL="$(fill "$STEP6_CONDITIONAL")"
 GATE_BEFORE="$(gate_rc "$GATE_RECIPE")"
+GATE_BEFORE_CONDITIONAL="$(gate_rc "$GATE_CONDITIONAL")"
 window --workflow-begin --tools "$GATE_TOOLS"
 GATE_INSIDE="$(gate_rc "$GATE_RECIPE")"
 GATE_INSIDE_CONDITIONAL="$(gate_rc "$GATE_CONDITIONAL")"
 window --workflow-end
 GATE_AFTER="$(gate_rc "$GATE_RECIPE")"
-check "M22 the Kiro CLI write-gate denies the Step 6 recipe outside the skill's workflow window and admits both recipes inside it" "$(all \
+GATE_AFTER_CONDITIONAL="$(gate_rc "$GATE_CONDITIONAL")"
+check "M22 the Kiro CLI write-gate denies both Step 6 recipes outside the skill's workflow window and admits both inside it, whatever gate settings the calling shell exports" "$(all \
   "$([ -n "$GATE_TOOLS" ] && command -v node >/dev/null 2>&1 && echo PASS || echo FAIL)" \
   "$([ "$GATE_BEFORE" = 2 ] && echo PASS || echo FAIL)" \
+  "$([ "$GATE_BEFORE_CONDITIONAL" = 2 ] && echo PASS || echo FAIL)" \
   "$([ "$GATE_INSIDE" = 0 ] && echo PASS || echo FAIL)" \
   "$([ "$GATE_INSIDE_CONDITIONAL" = 0 ] && echo PASS || echo FAIL)" \
-  "$([ "$GATE_AFTER" = 2 ] && echo PASS || echo FAIL)")"
+  "$([ "$GATE_AFTER" = 2 ] && echo PASS || echo FAIL)" \
+  "$([ "$GATE_AFTER_CONDITIONAL" = 2 ] && echo PASS || echo FAIL)")"
 
 PLM_REVIEW='- `zensu security review <id>` — Record a rejected or conditional review the user chose (`--reviewer` and `--status` required: rejected|conditional; always pass `--type`, which defaults to `manual`; findings and conditions only through `--findings-file`/`--conditions-file`)'
 PLM_CLASSIFY="it only keeps or raises the classification (none recorded counts as \`internal\`), and every value needs \`file:line\` evidence or the user's explicit statement"
