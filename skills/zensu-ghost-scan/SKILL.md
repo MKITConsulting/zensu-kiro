@@ -169,7 +169,7 @@ is the house pattern already used by `/zensu-plan-review` and `/zensu-tdd` Phase
    suggestions, refined boundaries, per-candidate `detectedSourceFiles` /
    `detectedTestFiles` / `detectedDocFiles` additions, doc gaps, and **draft
    journeys** (persona + ordered steps referencing candidate slugs — abstract until
-   apply, since `zensu journeys step` needs real feature IDs that exist only after
+   apply, since `zensu journeys step` needs real feature UUIDs that exist only after
    Phase 4).
 5. **Consolidate in this main thread (not a subagent).** Dedup by slug, reuse the
    exact existing slug on a match (enables enrichment during apply), union the three
@@ -238,13 +238,14 @@ is the house pattern already used by `/zensu-plan-review` and `/zensu-tdd` Phase
 ### Phase 5: Journey Discovery & Creation
 
 User journeys are a release gate (journey health), yet a brownfield import never gets
-them — close that gap here, **after `zensu ghost apply`**, when features have real ZEN IDs.
+them — close that gap here, **after `zensu ghost apply`**, when the features exist.
 This mirrors `/zensu-bootstrap` Step 2.
 
-1. Run `zensu features list --product <product-id> --compact` and build a
-   slug → ZEN-ID map from the just-applied features.
+1. Run `zensu features list --product <product-id> --json` and build a slug → `id`
+   map from the just-applied features: each entry's `id` is the feature's UUID,
+   written `<feature-uuid>`, the value `zensu journeys step --feature` takes.
 2. Take the draft journeys consolidated in Phase 2b. Resolve each draft step's
-   candidate slug to a real `feature_id` via the map. Drop any step whose slug was
+   candidate slug to its `<feature-uuid>` via the map. Drop any step whose slug was
    rejected or not applied, and `log` what was dropped (no silent omission).
 3. Dedup against the existing journeys loaded in Phase 1 — do not re-propose a
    journey that already exists.
@@ -254,7 +255,7 @@ This mirrors `/zensu-bootstrap` Step 2.
    - `zensu journeys suggest --product <product-id>` for product context.
    - `zensu journeys create --product <product-id>` per approved journey (title, slug, journey type,
      priority, persona).
-   - `zensu journeys step <journey-id> --product <product-id>` per step (`--step-order` 1-based, `--feature`,
+   - `zensu journeys step <journey-id> --product <product-id>` per step (`--step-order` 1-based, `--feature <feature-uuid>`,
      `--interaction-type` ∈ action|navigation|input|validation|output|wait,
      `--critical`).
    - `zensu journeys health --product <product-id> <journey-id>` on each created journey; report weak links to the user.
@@ -290,7 +291,7 @@ This mirrors `/zensu-bootstrap` Step 2.
 | Command | Phase | Purpose |
 |---------|-------|---------|
 | `zensu products list` | 1 | Validate product |
-| `zensu features list` | 1, 5, 6 | Load existing features (dedup); resolve slug → ZEN-ID after apply |
+| `zensu features list` | 1, 5, 6 | Load existing features (dedup); map each slug to its `<feature-uuid>` after apply |
 | `zensu journeys list` | 1, 5 | Load existing journeys (dedup) |
 | `Agent` (`agent: Explore`) | 2b | Parallel read-only analysis lenses (fan-out) |
 | `zensu ghost scan` | 3 | Create scan with candidates |
@@ -299,7 +300,7 @@ This mirrors `/zensu-bootstrap` Step 2.
 | `zensu ghost apply` | 4 | Apply approved candidates (use `--enrich-existing` if product has features) |
 | `zensu journeys suggest` | 5 | Product context for journey suggestions |
 | `zensu journeys create` | 5 | Create a discovered journey |
-| `zensu journeys step` | 5 | Add ordered steps linking real feature IDs |
+| `zensu journeys step` | 5 | Add ordered steps linking each feature by its `<feature-uuid>` |
 | `zensu journeys health` | 5 | Report weak links on created journeys |
 | `zensu features create` | 6 | Hybrid: create planned-but-unbuilt features from a forward plan doc |
 | `zensu doc claude-md` | 6 | Update CLAUDE.md (optional) |

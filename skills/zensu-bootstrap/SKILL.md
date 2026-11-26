@@ -31,7 +31,7 @@ Every command accepts `--json` for machine-readable output; run `zensu <noun> <v
 
 Execute these phases in order. Present results to the user after each phase and wait for confirmation before proceeding.
 
-**Workflow gate (first + last action).** As the VERY FIRST action, run `bash "$(cat "$HOME/.zensu/plugin-root")/hooks/lib/zensu-log.sh" --workflow-begin --tools "create_product,create_product_vision,bootstrap_from_vision,apply_bootstrap,create_feature,add_subfeature,create_tier,set_feature_tiers,create_user_journey,create_journey_step,split_feature,update_feature,update_bootstrap_step,generate_claude_md,generate_threat_model,analyze_feature_security"`. This marks the Zensu product workflow active so the CLI write-gate (`hooks.mcpGate`, default-on) recognizes this skill's `zensu products create` / `zensu products vision-create` / `zensu products bootstrap-apply` / `zensu features create` commands as workflow-driven rather than freelance and does not block them. As the VERY LAST action (after Phase 4, or on early exit), run `bash "$(cat "$HOME/.zensu/plugin-root")/hooks/lib/zensu-log.sh" --workflow-end`.
+**Workflow gate (first + last action).** As the VERY FIRST action, run `bash "$(cat "$HOME/.zensu/plugin-root")/hooks/lib/zensu-log.sh" --workflow-begin --tools "create_product,create_product_vision,bootstrap_from_vision,apply_bootstrap,create_feature,add_subfeature,create_tier,set_feature_tiers,create_user_journey,create_journey_step,split_feature,update_feature,deprecate_feature,set_security_classification,update_bootstrap_step,generate_claude_md,generate_threat_model,analyze_feature_security"`. This marks the Zensu product workflow active so the CLI write-gate (`hooks.mcpGate`, default-on) recognizes this skill's `zensu products create` / `zensu products vision-create` / `zensu products bootstrap-apply` / `zensu features create` commands as workflow-driven rather than freelance and does not block them. As the VERY LAST action (after Phase 4, or on early exit), run `bash "$(cat "$HOME/.zensu/plugin-root")/hooks/lib/zensu-log.sh" --workflow-end`.
 
 ### Phase 1: Product & Vision Setup
 
@@ -58,29 +58,31 @@ Execute these phases in order. Present results to the user after each phase and 
 Execute each step below, presenting results to the user after each.
 
 **Step 1: Review & Refine Features**
-- Review the bootstrapped features with the user (`zensu features list --product <product-id>`)
-- Remove horizontal/implementation features that shouldn't be tracked
-- Split XL-effort features using `zensu subfeatures add <feature-id>` or `zensu features split <feature-id>`
+- Review the bootstrapped features with the user (`zensu features list --product <product-id> --json`). `zensu products bootstrap-apply` returns counts, not feature IDs, so this list is the source of every `<feature-uuid>` in Phase 3: each entry's `id` is the feature's UUID. Read it again after any change that adds, splits or removes features, before the next feature-scoped command, and skip entries whose `deprecated_at` is set. When the user names a feature by its `KEY-N` id or its slug, match `number` for a `KEY-N` id whose `KEY` is the product's `feature_key` (`zensu products get <product-id> --json`), or `slug` for a slug, and take that entry's `id`. If the `KEY` is another product's, or no entry or more than one matches, ask the user instead of guessing. A feature-scoped command fails with HTTP 400 `invalid feature id` when it gets a `KEY-N` id or a slug instead of the UUID.
+- Remove horizontal/implementation features that shouldn't be tracked with `zensu features deprecate <feature-uuid> --reason <reason>`
+- Split XL-effort features using `zensu subfeatures add <feature-uuid>` or `zensu features split <feature-uuid>`
 - Add missing features with `zensu features create`
-- Fix incorrect priorities or security classifications with `zensu features update <feature-id>`
+- Fix incorrect priorities with `zensu features update <feature-uuid> --priority <low|medium|high|critical>` and incorrect security classifications with `zensu security classify <feature-uuid> --classification <public|internal|confidential|restricted>`
 - After completion: run `zensu products bootstrap-step <vision-id> --step 1`
 
 **Step 2: Define User Journeys**
+- Re-read `zensu features list --product <product-id> --json` first, since Step 1 may have added, split or removed features: each entry's `id` is the `<feature-uuid>` a journey step links through `--feature`
 - Run `zensu journeys suggest --product <product-id>` to get product context for journey suggestions
 - Propose 3-5 critical user journeys to the user
 - Create approved journeys with `zensu journeys create --product <product-id>` (include title, slug, journey type, priority, persona)
 - For each journey, add steps with `zensu journeys step <journey-id> --product <product-id>`:
   - Set step order (1-based sequential) via `--step-order`
-  - Link to features via `--feature`
+  - Link to features via `--feature <feature-uuid>`
   - Set `--interaction-type` (action|navigation|input|validation|output|wait)
   - Mark critical steps with `--critical`
 - Run `zensu journeys health --product <product-id> <journey-id>` on each journey to identify weak links
 - After completion: run `zensu products bootstrap-step <vision-id> --step 2`
 
 **Step 3: Deepen Security Setup**
-- Run `zensu security analyze <feature-id>` on all confidential/restricted features
-- Run `zensu security suggest-tests <feature-id>` on high-risk features to identify needed tests
-- Run `zensu security threat-model <feature-id>` on the most critical feature for STRIDE analysis
+- Re-read `zensu features list --product <product-id> --json` first, since Step 1 may have added, split or removed features: each entry's `id` is the `<feature-uuid>` below, and its `security_classification` and `priority` pick the features
+- Run `zensu security analyze <feature-uuid>` on all confidential/restricted features
+- Run `zensu security suggest-tests <feature-uuid>` on high-risk features to identify needed tests
+- Run `zensu security threat-model <feature-uuid>` on the most critical feature for STRIDE analysis
 - Present the security posture summary to the user
 - After completion: run `zensu products bootstrap-step <vision-id> --step 3`
 
@@ -89,7 +91,7 @@ Execute each step below, presenting results to the user after each.
 - If yes:
   1. Ask which tiers they need
   2. Run `zensu tiers create --product <product-id>` for each tier (ascending tier order: 1, 2, 3...)
-  3. Run `zensu tiers set-feature <feature-id>` for each feature:
+  3. Run `zensu tiers set-feature <feature-uuid>` for each feature:
      - Critical features: available in all tiers (hard gating)
      - High priority: Pro and above
      - Medium/low: highest tier only
@@ -122,8 +124,11 @@ The product is now ready for implementation. Features can be worked on using the
 | `zensu products vision-create` | 1 | Store the vision document |
 | `zensu products vision-get` | 2 | Get vision content for analysis |
 | `zensu products bootstrap-apply` | 2 | Create components and features from decomposition |
-| `zensu features list` | 3.1 | Review bootstrapped features |
+| `zensu features list` | 3.1, 3.2, 3.3 | Review bootstrapped features; each entry's `id` is the `<feature-uuid>` the feature-scoped commands take |
+| `zensu products get` | 3.1 | Read the product's `feature_key` to check the `KEY` of a `KEY-N` id the user names |
 | `zensu features update` | 3.1 | Fix priorities, descriptions |
+| `zensu security classify` | 3.1 | Fix security classifications |
+| `zensu features deprecate` | 3.1 | Remove features that should not be tracked |
 | `zensu subfeatures add` | 3.1 | Split large features |
 | `zensu features split` | 3.1 | Split features into children |
 | `zensu features create` | 3.1 | Add missing features |

@@ -10,7 +10,7 @@ The CLI talks to the same Zensu backend the web app uses; authenticate once with
 - **Tiers**: Pricing levels (Free/Pro/Team/Enterprise) with feature gating
 - **Features**: The central entity — tracked with status, security profile, linked tests, docs, coverage, and tier availability
 
-**Feature IDs** follow the `KEY-N` format — product feature key + per-product number (e.g. `ZEN-42`, `AUTH-7`). Reference them in commit messages as `[ZEN-42]`; legacy `[ZEN-<slug>]` refs stay resolvable.
+**Feature IDs** follow the `KEY-N` format — product feature key + per-product number (e.g. `ZEN-42`, `AUTH-7`). Reference them in commit messages as `[ZEN-42]`; legacy `[ZEN-<slug>]` refs stay resolvable. `KEY-N` is the human-facing id only: every CLI feature argument, written `<feature-uuid>` below, takes the feature **UUID** and rejects a `KEY-N` id or slug with HTTP 400 `invalid feature id`; the `--feature` flag of `zensu journeys step` takes the feature UUID too. Resolve `KEY-N` → UUID via `zensu products list --json` (match `feature_key`) → `zensu features list --product <product-id> --json` (match `number` or `slug`). A slug carries no `KEY`: when the product is not known yet, ask the user which product the slug belongs to. If no entry or more than one matches, ask the user instead of guessing.
 
 **Feature Status Lifecycle**: `planned` → `in-progress` → `testing` → `released`
 
@@ -29,53 +29,53 @@ Roadmaps/milestones are a separate **product-level** axis (many features across 
 
 ### Feature CRUD
 - `zensu features list` — List features (`--product`, `--compact`)
-- `zensu features get <id>` — Get full feature details
+- `zensu features get <feature-uuid>` — Get full feature details. The id must be the feature **UUID**; a slug or KEY-N id is rejected with HTTP 400 `invalid feature id`.
 - `zensu features create` — Create a new feature
-- `zensu features update <id>` — Update feature properties (NOT status — use `zensu features status`)
-- `zensu features status <id> <status>` — Transition status (planned|in-progress|testing|released)
+- `zensu features update <feature-uuid>` — Update feature properties (NOT status — use `zensu features status`)
+- `zensu features status <feature-uuid> <status>` — Transition status (planned|in-progress|testing|released)
 - `zensu products list` — List all products
 - `zensu products create` — Create a new product. **Required: `--name` + `--slug`** (`slug` = URL-safe id, e.g. `my-saas-app`). Optional: `--type` (`public_product`|`internal_product`|`hybrid`) and the product metadata flags
 
 ### Subfeatures
-- `zensu subfeatures add <feature-id>` — Add a child feature
-- `zensu subfeatures list <feature-id>` — List children of a feature
-- `zensu subfeatures promote <feature-id> <sub-id>` — Promote a subfeature to a standalone feature
+- `zensu subfeatures add <feature-uuid>` — Add a child feature
+- `zensu subfeatures list <feature-uuid>` — List children of a feature
+- `zensu subfeatures promote <feature-uuid> <sub-id>` — Promote a subfeature to a standalone feature
 
 ### Linking Artifacts
-- `zensu link test <feature-id>` — Link a test file (unit|integration|e2e|security|performance|accessibility)
-- `zensu link docs <feature-id>` — Link documentation to a feature
-- `zensu link source <feature-id>` — Map source files (repeatable `--file`; covers bulk mapping)
+- `zensu link test <feature-uuid>` — Link a test file (unit|integration|e2e|security|performance|accessibility)
+- `zensu link docs <feature-uuid>` — Link documentation to a feature
+- `zensu link source <feature-uuid>` — Map source files (repeatable `--file`; covers bulk mapping)
 
 ### Security
-- `zensu security classify <id>` — Set classification, data sensitivity, auth, encryption, audit settings
+- `zensu security classify <feature-uuid>` — Set classification, data sensitivity, auth, encryption, audit settings
 - `zensu security posture <product-id>` — Product-wide security overview (product id is positional, not `--product`)
-- `zensu security analyze <id>` — Feature security analysis with score and requirements matrix (persists the score server-side, so it is classified a mutation and gated on the main thread — run it inside a skill workflow rather than reaching for `ZENSU_MCP_GATE=off`)
-- `zensu security validate <id>` — Check if feature passes release gate
-- `zensu security add-test <id>` — Link a security test (auth-bypass|injection|access-control|rate-limit|input-validation|data-exposure|header-security|dependency-scan|csrf|xss|ssrf)
-- `zensu security review <id>` — Complete a review (approved|rejected|conditional)
-- `zensu security suggest-tests <id>` — Get context for test recommendations
-- `zensu security threat-model <id>` — Get context for STRIDE threat model generation
+- `zensu security analyze <feature-uuid>` — Feature security analysis with score and requirements matrix (persists the score server-side, so it is classified a mutation and gated on the main thread — run it inside a skill workflow rather than reaching for `ZENSU_MCP_GATE=off`)
+- `zensu security validate <feature-uuid>` — Check if feature passes release gate
+- `zensu security add-test <feature-uuid>` — Link a security test (auth-bypass|injection|access-control|rate-limit|input-validation|data-exposure|header-security|dependency-scan|csrf|xss|ssrf)
+- `zensu security review <feature-uuid>` — Complete a review (approved|rejected|conditional)
+- `zensu security suggest-tests <feature-uuid>` — Get context for test recommendations
+- `zensu security threat-model <feature-uuid>` — Get context for STRIDE threat model generation
 
 ### Revisions
-- `zensu features revision <id>` — Create a versioned revision of a feature
-- `zensu features history <id>` — Get revision history
+- `zensu features revision <feature-uuid>` — Create a versioned revision of a feature
+- `zensu features history <feature-uuid>` — Get revision history
 
 ### Lifecycle
-- `zensu features split <id>` — Split a feature into multiple children
-- `zensu features merge <id>` — Merge multiple features into one
-- `zensu features deprecate <id>` — Mark a feature as deprecated
+- `zensu features split <feature-uuid>` — Split a feature into multiple children
+- `zensu features merge <feature-uuid>` — Merge multiple features into one
+- `zensu features deprecate <feature-uuid>` — Mark a feature as deprecated
 
 ### Tiers
 - `zensu tiers create --product <id>` — Create a pricing tier
 - `zensu tiers list --product <id>` — List all tiers for a product
-- `zensu tiers set-feature <feature-id>` — Assign features to tiers (hard|soft|preview gating)
+- `zensu tiers set-feature <feature-uuid>` — Assign features to tiers (hard|soft|preview gating)
 - `zensu tiers matrix --product <id>` — Get the complete Feature × Tier matrix
 
 ### User Journeys
 - `zensu journeys list --product <id>` — List journeys for a product
 - `zensu journeys get <journey-id> --product <id>` — Get journey details with steps
 - `zensu journeys create --product <id>` — Create a user journey
-- `zensu journeys step <journey-id> --product <id>` — Add a step to a journey
+- `zensu journeys step <journey-id> --product <id>` — Add a step to a journey (`--title` and `--step-order` required; `--feature` takes the feature **UUID**; `--interaction-type` action|navigation|input|validation|output|wait)
 - `zensu journeys steps <journey-id> --product <id>` — List steps for a journey
 - `zensu journeys health <journey-id> --product <id>` — Analyze journey health and weak links
 - `zensu journeys suggest --product <id>` — Get context for journey suggestions
@@ -92,7 +92,7 @@ Roadmaps/milestones are a separate **product-level** axis (many features across 
 - `zensu doc claude-md --product <id>` — Generate a CLAUDE.md template (`--variant` full|minimal|ci-only)
 
 ### Source Files & Docs
-- `zensu doc gen-context <feature-id>` — Get the *context map* (source-file paths, symbols, security posture) to read the real source before writing docs — NOT a doc generator. See `docs/documentation-guide.md` under the plugin root.
+- `zensu doc gen-context <feature-uuid>` — Get the *context map* (source-file paths, symbols, security posture) to read the real source before writing docs — NOT a doc generator. See `docs/documentation-guide.md` under the plugin root.
 
 ### Wiki
 - `zensu wiki create` — Create a wiki page
@@ -155,7 +155,7 @@ Use the `/zensu-ghost-scan` skill workflow:
 4. Create ghost scan with the refined candidates
 5. Batch review (approve/reject)
 6. Apply approved candidates as features (`--enrich-existing` when the product already has features)
-7. **After apply, discover user journeys:** map drafted journeys to the new feature IDs and create them with `zensu journeys create` + `zensu journeys step`, then `zensu journeys health` — brownfield imports need journeys to pass the release gate. Flag features with zero docs for `/zensu-implement` (ghost-scan links existing docs, never generates new ones). The v1 build-out baseline is minted server-side by `zensu ghost apply` (zensu-monorepo #266) — no client revision step here.
+7. **After apply, discover user journeys:** map drafted journeys to the new features' UUIDs (each entry's `id` in `zensu features list --product <product-id> --json`) and create them with `zensu journeys create` + `zensu journeys step --feature <feature-uuid>`, then `zensu journeys health` — brownfield imports need journeys to pass the release gate. Flag features with zero docs for `/zensu-implement` (ghost-scan links existing docs, never generates new ones). The v1 build-out baseline is minted server-side by `zensu ghost apply` (zensu-monorepo #266) — no client revision step here.
 
 ### When the project has both built code and a forward plan (hybrid)
 A brownfield repo whose plan/vision doc *also* describes not-yet-built features:
@@ -173,7 +173,7 @@ Use the `/zensu-pulse` skill workflow:
 
 ### When the user wants documentation
 **Read `docs/documentation-guide.md` under the plugin root** (the directory named in `~/.zensu/plugin-root`, normally `~/.kiro/zensu`; the plugin's guide, not a file of the user's project) first, then follow its read-source-first procedure:
-1. Run `zensu doc gen-context <feature-id> --doc-type <type>` — this is the context *map* (source-file paths, symbols, security posture), not the source itself
+1. Run `zensu doc gen-context <feature-uuid> --doc-type <type>` — this is the context *map* (source-file paths, symbols, security posture), not the source itself
 2. **Read the real source files it names** (Read/Grep) — the map is not the territory
 3. Author code-grounded Markdown matched to the doc type's focus and audience (8 types: `user_facing`, `api_reference`, `tutorial`, `adr`, `release_notes`, `internal`, `migration_guide`, `overview`)
 4. Publish with `zensu wiki create`, then `zensu link docs` to update the docs score
@@ -204,7 +204,7 @@ Never condense the context metadata straight into a wiki page — that is the fo
 
 1. **Commands provide data, you do the reasoning.** The `zensu` CLI returns structured context. You analyze, recommend, and decide.
 2. **Never guess feature IDs.** Always use `zensu features list` or ask the user.
-3. **Status transitions use a dedicated command.** Status changes go through `zensu features status <id> <new-status>`, never `zensu features update`.
+3. **Status transitions use a dedicated command.** Status changes go through `zensu features status <feature-uuid> <new-status>`, never `zensu features update`.
 4. **Security classification before implementation.** Always check/set classification before coding.
 5. **Reference features in commits.** Use `[KEY-N]` format (e.g. `[ZEN-42]`) in commit messages.
 6. **Present results, then wait.** After each workflow phase, show results and wait for user confirmation before proceeding.
@@ -213,7 +213,7 @@ Never condense the context metadata straight into a wiki page — that is the fo
 9. **Ground work in existing knowledge.** The main thread loads `zensu knowledge context-pack <feature-ref> --json --agent kiro`, checks `truncated`, hydrates relevant real items with `zensu knowledge get <item-id> --json --context-load <load-id>`, and reads referenced files from the authorized checkout. Require a handoff distinguishing contents read, excerpt/metadata only, and unresolved sources. Missing evidence belongs in your input request, not an invented result. Search uses `--json` to retain passages. These reads supplement feature, security and design context, do not start a workflow, and do not prove recorded agent usage. Respect this profile's execution boundary.
 10. **Documentation is code-grounded, never a metadata dump.** `zensu doc gen-context` returns the *map* (source-file paths, symbols, security posture) — not the source. Before writing any doc or wiki page, open and **read** the `detectedSourceFiles` it names, then author content from the real signatures, endpoints, and behavior. Condensing the context metadata straight into `## Purpose / ## Source files / ## Security / ## Notes` sections is forbidden — it produces a reformatted feature record, not documentation. Pick `doc_type` and `audience` from the canonical sets. **Read `docs/documentation-guide.md` under the plugin root** for the full procedure before writing.
 11. **Ghost scans are multi-perspective and journey-aware.** A single heuristic pass misses features — augment the seed walk with a read-only `Explore` fan-out (adaptive count, cap 12) and consolidate in the main thread. Treat `detectedDocFiles` as first-class scan data alongside `detectedTestFiles` — glob existing READMEs/`docs` per candidate; an omitted array links zero. After apply, discover and create user journeys (`zensu journeys create` → `zensu journeys step` → `zensu journeys health`) so brownfield imports can pass the journey-health release gate; flag features with zero docs for `/zensu-implement` rather than auto-generating docs.
-12. **CLI flags are kebab-case — pass them as `zensu <noun> <verb> --help` documents.** Commands take flags like `--product`, `--slug`, `--type`, `--classification` (kebab-case), not the snake_case wire keys. Always supply a command's **required** flags — `zensu products create` requires both `--name` AND `--slug` (omitting `--slug` hard-fails). IDs that are path segments are positional args (e.g. `zensu features get <id>`), not flags. When unsure of a command's exact flags, run its `--help` rather than guessing.
+12. **CLI flags are kebab-case — pass them as `zensu <noun> <verb> --help` documents.** Commands take flags like `--product`, `--slug`, `--type`, `--classification` (kebab-case), not the snake_case wire keys. Always supply a command's **required** flags — `zensu products create` requires both `--name` AND `--slug` (omitting `--slug` hard-fails). IDs that are path segments are positional args (e.g. `zensu features get <feature-uuid>`), not flags. When unsure of a command's exact flags, run its `--help` rather than guessing.
 
 ## Automatic context
 
