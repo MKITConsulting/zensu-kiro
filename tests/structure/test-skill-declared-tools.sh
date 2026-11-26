@@ -4,14 +4,7 @@ set -u
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 GATE="$PLUGIN_DIR/hooks/pre-bash-zensu-gate.sh"
 
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
-
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 . "$PLUGIN_DIR/hooks/lib/zensu-cli-map.sh"
 . "$PLUGIN_DIR/hooks/lib/zensu-mcp-tools.sh"
 
@@ -20,8 +13,27 @@ noun_of() {
   printf '%s\n' "$ALIASES" | awk -v n="$1" '$1 == n { print $2; found = 1 } END { if (!found) print n }'
 }
 undeclared() {
-  printf '%s\n' "$1" | grep -oE -- 'zensu( -[-a-z]+)* [a-z][a-z-]* [a-z][a-z-]*' \
-    | awk '{ i = 2; while (i <= NF && substr($i, 1, 1) == "-") i++; print $i, $(i + 1) }' \
+  printf '%s\n' "$1" | tr '`();|&' '\n\n\n\n\n\n' | awk '
+    function word(t) { return match(t, /^[a-z][a-z-]*/) ? substr(t, 1, RLENGTH) : "" }
+    {
+      for (s = 1; s <= NF; s++) {
+        if ($s !~ /zensu$/) continue
+        noun = ""
+        for (k = s + 1; k <= NF; k++) {
+          if ($k == "--api-url") { k++; continue }
+          if (substr($k, 1, 1) == "-") continue
+          noun = word($k); break
+        }
+        if (noun == "") continue
+        verb = ""
+        for (m = k + 1; m <= NF; m++) {
+          if ($m == "--api-url") { m++; continue }
+          if (substr($m, 1, 1) == "-") continue
+          verb = word($m); break
+        }
+        print noun, verb
+      }
+    }' \
     | sort -u | while read -r noun verb; do
       tool="$(zensu_cli_to_tool "$(noun_of "$noun")" "$verb")"
       { [ -n "$tool" ] && zensu_is_mutation_tool "$tool"; } || continue
@@ -58,6 +70,26 @@ check "D4 the check reads an aliased noun the way the write-gate does" "$(all \
 
 check "D5 the check skips flags before the noun the way the write-gate does" \
   "$([ "$(undeclared 'Run `zensu --json features update <feature-uuid>`.' '')" = update_feature ] && echo PASS || echo FAIL)"
+
+check "D6 the check skips a flag between noun and verb the way the write-gate does" \
+  "$([ "$(undeclared 'Run `zensu features --json update <feature-uuid>`.' '')" = update_feature ] && echo PASS || echo FAIL)"
+
+check "D7 the check skips the value of a bare --api-url before the noun and between noun and verb the way the write-gate does" "$(all \
+  "$([ "$(undeclared 'Run `zensu --api-url https://x features update <feature-uuid>`.' '')" = update_feature ] && echo PASS || echo FAIL)" \
+  "$([ "$(undeclared 'Run `zensu features --api-url https://x update <feature-uuid>`.' '')" = update_feature ] && echo PASS || echo FAIL)")"
+
+check "D8 the check skips a --flag=value before the noun the way the write-gate does" \
+  "$([ "$(undeclared 'Run `zensu --api-url=https://x security classify <feature-uuid>`.' '')" = set_security_classification ] && echo PASS || echo FAIL)"
+
+check "D9 the check ends a command at the write-gate's command boundaries" \
+  "$([ -z "$(undeclared 'Run `zensu features --json`; update the title by hand.' '')" ] && echo PASS || echo FAIL)"
+
+check "D10 the check reads a verb that ends a sentence as the bare verb" \
+  "$([ "$(undeclared 'Then run zensu features update.' '')" = update_feature ] && echo PASS || echo FAIL)"
+
+check "D11 the check finds a zensu command in the middle of a line, as in a collapsed code block" "$(all \
+  "$([ "$(undeclared 'Then run zensu features update <feature-uuid> by hand.' '')" = update_feature ] && echo PASS || echo FAIL)" \
+  "$([ "$(undeclared 'cat <<EOF x EOF zensu security classify <feature-uuid>' '')" = set_security_classification ] && echo PASS || echo FAIL)")"
 
 echo "----"
 echo "test-skill-declared-tools: $PASS PASS / $FAIL FAIL"

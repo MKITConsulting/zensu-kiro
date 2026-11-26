@@ -2,15 +2,9 @@
 set -u
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 PLM_CLI="$PLUGIN_DIR/agents/prompts/zensu-plm.md"
 PLM_IDE="$PLUGIN_DIR/agents/ide/zensu-plm.md"
-
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
 
 P1_MISSING=""
 for f in "$PLM_CLI" "$PLM_IDE"; do
@@ -23,16 +17,6 @@ if [ -n "$P1_MISSING" ]; then
   exit 1
 fi
 check "P1 both zensu-plm prompts exist" PASS
-
-has() { printf '%s' "$1" | grep -qF -- "$2" && echo PASS || echo FAIL; }
-lacks() { printf '%s' "$1" | grep -qF -- "$2" && echo FAIL || echo PASS; }
-before() {
-  T="$1" A="$2" B="$3" awk 'BEGIN {
-    i = index(ENVIRON["T"], ENVIRON["A"]); j = index(ENVIRON["T"], ENVIRON["B"])
-    print ((i > 0 && j > i) ? "PASS" : "FAIL")
-  }'
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
 
 CLI_WHOLE="$(tr -s '[:space:]' ' ' < "$PLM_CLI")"
 IDE_WHOLE="$(tr -s '[:space:]' ' ' < "$PLM_IDE")"
@@ -59,12 +43,6 @@ check "P3 the zensu features get line of both prompts says the id must be the fe
   "$(has "$CLI_WHOLE" "$GET_LINE")" \
   "$(has "$IDE_WHOLE" "$GET_LINE")")"
 
-FEATURE_CMD_RE='zensu (features (get|update|status|revision|history|split|merge|deprecate)|subfeatures (add|list|promote)|security (classify|analyze|validate|add-test|review|suggest-tests|threat-model)|tiers set-feature|link (test|docs|source)|doc gen-context) <[^>]*>'
-feature_args() {
-  local found
-  found="$(printf '%s\n' "$1" | grep -oE -- "$FEATURE_CMD_RE")"
-  [ -n "$found" ] && ! printf '%s\n' "$found" | grep -qvE -- ' <feature-uuid>$' && echo PASS || echo FAIL
-}
 P4_MISSING=""
 for c in 'features get' 'features update' 'features status' 'features revision' 'features history' \
   'features split' 'features merge' 'features deprecate' 'subfeatures add' 'subfeatures list' 'subfeatures promote' \
@@ -74,8 +52,8 @@ for c in 'features get' 'features update' 'features status' 'features revision' 
   printf '%s' "$IDE_WHOLE" | grep -qF -- "zensu $c <feature-uuid>" || P4_MISSING="$P4_MISSING [ide: $c]"
 done
 check "P4 every feature-scoped zensu command in both prompts names <feature-uuid>, none <feature-id>, <id> or another placeholder${P4_MISSING:+ (missing:$P4_MISSING)}" "$(all \
-  "$(feature_args "$CLI_WHOLE")" \
-  "$(feature_args "$IDE_WHOLE")" \
+  "$(uuid_args "$CLI_WHOLE" "$FEATURE_CMD_RE")" \
+  "$(uuid_args "$IDE_WHOLE" "$FEATURE_CMD_RE")" \
   "$([ -z "$P4_MISSING" ] && echo PASS || echo FAIL)" \
   "$(lacks "$CLI_WHOLE" '<feature-id>')" \
   "$(lacks "$IDE_WHOLE" '<feature-id>')")"
@@ -91,10 +69,10 @@ P6_ID='Run `zensu security classify <feature-uuid>`, then `zensu features revisi
 P6_KEY='Run `zensu link test <feature-id>` once.'
 P6_NONE='Run `zensu security posture <product-id>` once.'
 check "P6 the argument check passes <feature-uuid>-only text and fails a <feature-id>, <id> or other placeholder, or text without a feature call" "$(all \
-  "$(feature_args "$P6_GOOD")" \
-  "$([ "$(feature_args "$P6_ID")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(feature_args "$P6_KEY")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(feature_args "$P6_NONE")" = FAIL ] && echo PASS || echo FAIL)")"
+  "$(uuid_args "$P6_GOOD" "$FEATURE_CMD_RE")" \
+  "$([ "$(uuid_args "$P6_ID" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$P6_KEY" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$P6_NONE" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)")"
 
 P7_GOOD="Resolve via \`$PRODUCTS_CMD\` → \`$FEATURES_CMD\`."
 P7_LATE="Read \`$FEATURES_CMD\`, then \`$PRODUCTS_CMD\`."

@@ -2,17 +2,11 @@
 set -u
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 SKILL_MD="$PLUGIN_DIR/skills/zensu-implement/SKILL.md"
 INSTALL_SH="$PLUGIN_DIR/install.sh"
 SCOPE_TITLE='Required doc types (the release gate)'
 REFUSAL='previous revision must be released or superseded before creating a new one'
-
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
 
 if [ ! -f "$SKILL_MD" ]; then
   check "M1 skills/zensu-implement/SKILL.md exists" FAIL
@@ -26,14 +20,6 @@ section() {
   awk -v start="$1" -v stop="$2" 'index($0, start) == 1 {p = 1} p && index($0, stop) == 1 {exit} p' "$SKILL_MD" \
     | tr -s '[:space:]' ' '
 }
-has() { printf '%s' "$1" | grep -qF -- "$2" && echo PASS || echo FAIL; }
-before() {
-  T="$1" A="$2" B="$3" awk 'BEGIN {
-    i = index(ENVIRON["T"], ENVIRON["A"]); j = index(ENVIRON["T"], ENVIRON["B"])
-    print ((i > 0 && j > i) ? "PASS" : "FAIL")
-  }'
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
 
 PREREQ="$(section '## Prerequisites' '## Workflow')"
 STEP1="$(section '### Step 1:' '### Step 2:')"
@@ -125,12 +111,7 @@ check "M16 Step 1 resolves a non-UUID ID through the product's feature_key and i
   "$(before "$STEP1" 'zensu products list --json' 'zensu features list --product <product-id> --json')" \
   "$(before "$STEP1" 'zensu features list --product <product-id> --json' 'zensu features get <feature-uuid>')")"
 
-FEATURE_CMD_RE='zensu (features (get|revision|status)|security (analyze|validate)|mocks (list|get)|doc gen-context|link (test|source|docs)) <[^>]*>'
-uuid_args() {
-  local found
-  found="$(printf '%s\n' "$1" | grep -oE -- "$FEATURE_CMD_RE")"
-  [ -n "$found" ] && ! printf '%s\n' "$found" | grep -qvE -- ' <feature-uuid>$' && echo PASS || echo FAIL
-}
+SKILL_FEATURE_CMD_RE='zensu (features (get|revision|status)|security (analyze|validate)|mocks (list|get)|doc gen-context|link (test|source|docs)) <[^>]*>'
 WHOLE="$(tr -s '[:space:]' ' ' < "$SKILL_MD")"
 M17_MISSING=""
 for c in 'features get' 'security analyze' 'mocks list' 'mocks get' 'link test' 'link source' \
@@ -138,7 +119,7 @@ for c in 'features get' 'security analyze' 'mocks list' 'mocks get' 'link test' 
   printf '%s' "$WHOLE" | grep -qF -- "zensu $c <feature-uuid>" || M17_MISSING="$M17_MISSING [$c]"
 done
 check "M17 every feature-scoped zensu command passes <feature-uuid>, none another placeholder${M17_MISSING:+ (missing:$M17_MISSING)}" "$(all \
-  "$(uuid_args "$WHOLE")" \
+  "$(uuid_args "$WHOLE" "$SKILL_FEATURE_CMD_RE")" \
   "$([ -z "$M17_MISSING" ] && echo PASS || echo FAIL)")"
 
 check "M18 the CLI table lists the Step 1 resolution commands" "$(all \
@@ -149,9 +130,9 @@ M19_GOOD='Run `zensu link test <feature-uuid>`, then `zensu features get <featur
 M19_KEY='Run `zensu link test <feature-uuid>`, then `zensu features get <feature-id>`.'
 M19_NONE='Run `zensu link test` once per file.'
 check "M19 the UUID-argument check passes UUID-only text and fails a KEY-N placeholder or text without a feature call" "$(all \
-  "$(uuid_args "$M19_GOOD")" \
-  "$([ "$(uuid_args "$M19_KEY")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(uuid_args "$M19_NONE")" = FAIL ] && echo PASS || echo FAIL)")"
+  "$(uuid_args "$M19_GOOD" "$SKILL_FEATURE_CMD_RE")" \
+  "$([ "$(uuid_args "$M19_KEY" "$SKILL_FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$M19_NONE" "$SKILL_FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)")"
 
 echo "----"
 echo "test-implement-skill: $PASS PASS / $FAIL FAIL"

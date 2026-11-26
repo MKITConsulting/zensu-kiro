@@ -2,14 +2,8 @@
 set -u
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 SKILL_MD="$PLUGIN_DIR/skills/zensu-ghost-scan/SKILL.md"
-
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
 
 if [ ! -f "$SKILL_MD" ]; then
   check "G1 skills/zensu-ghost-scan/SKILL.md exists" FAIL
@@ -18,20 +12,6 @@ if [ ! -f "$SKILL_MD" ]; then
   exit 1
 fi
 check "G1 skills/zensu-ghost-scan/SKILL.md exists" PASS
-
-section() {
-  awk -v start="$1" -v stop="$2" 'index($0, start) == 1 {p = 1} p && stop != "" && index($0, stop) == 1 {exit} p' "$SKILL_MD" \
-    | tr -s '[:space:]' ' '
-}
-has() { printf '%s' "$1" | grep -qF -- "$2" && echo PASS || echo FAIL; }
-lacks() { printf '%s' "$1" | grep -qF -- "$2" && echo FAIL || echo PASS; }
-before() {
-  T="$1" A="$2" B="$3" awk 'BEGIN {
-    i = index(ENVIRON["T"], ENVIRON["A"]); j = index(ENVIRON["T"], ENVIRON["B"])
-    print ((i > 0 && j > i) ? "PASS" : "FAIL")
-  }'
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
 
 PHASE5="$(section '### Phase 5:' '### Phase 6')"
 CLI_TABLE="$(section '## CLI Commands Used' '')"

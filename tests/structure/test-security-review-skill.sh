@@ -2,16 +2,10 @@
 set -u
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 SKILL_MD="$PLUGIN_DIR/skills/zensu-security-review/SKILL.md"
 PLM_CLI="$PLUGIN_DIR/agents/prompts/zensu-plm.md"
 PLM_IDE="$PLUGIN_DIR/agents/ide/zensu-plm.md"
-
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
 
 if [ ! -f "$SKILL_MD" ]; then
   check "M1 skills/zensu-security-review/SKILL.md exists" FAIL
@@ -21,20 +15,7 @@ if [ ! -f "$SKILL_MD" ]; then
 fi
 check "M1 skills/zensu-security-review/SKILL.md exists" PASS
 
-raw_section() {
-  awk -v start="$1" -v stop="$2" 'index($0, start) == 1 {p = 1} p && stop != "" && index($0, stop) == 1 {exit} p' "$SKILL_MD"
-}
-section() { raw_section "$1" "$2" | tr -s '[:space:]' ' '; }
 flat() { [ -f "$1" ] && tr -s '[:space:]' ' ' < "$1"; }
-has() { printf '%s' "$1" | grep -qF -- "$2" && echo PASS || echo FAIL; }
-lacks() { printf '%s' "$1" | grep -qF -- "$2" && echo FAIL || echo PASS; }
-before() {
-  T="$1" A="$2" B="$3" awk 'BEGIN {
-    i = index(ENVIRON["T"], ENVIRON["A"]); j = index(ENVIRON["T"], ENVIRON["B"])
-    print ((i > 0 && j > i) ? "PASS" : "FAIL")
-  }'
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
 
 PREREQ="$(section '## Prerequisites' '## Workflow')"
 STEP1="$(section '### Step 1:' '### Step 2:')"
@@ -63,19 +44,14 @@ check "M3 Step 1 resolves a non-UUID ID through the product's feature_key and it
   "$(before "$STEP1" 'zensu features list --product <product-id> --json' 'zensu security classify <feature-uuid>')" \
   "$(before "$STEP1" 'zensu features list --product <product-id> --json' 'zensu security analyze <feature-uuid>')")"
 
-FEATURE_CMD_RE='zensu (security (classify|analyze|suggest-tests|threat-model|add-test|review|validate)|features get) <[^>]*>'
-uuid_args() {
-  local found
-  found="$(printf '%s\n' "$1" | grep -oE -- "$FEATURE_CMD_RE")"
-  [ -n "$found" ] && ! printf '%s\n' "$found" | grep -qvE -- ' <feature-uuid>$' && echo PASS || echo FAIL
-}
+SKILL_FEATURE_CMD_RE='zensu (security (classify|analyze|suggest-tests|threat-model|add-test|review|validate)|features get) <[^>]*>'
 M4_MISSING=""
 for c in 'security classify' 'security analyze' 'security suggest-tests' 'security threat-model' 'security add-test' \
   'security review' 'security validate' 'features get'; do
   printf '%s' "$WHOLE" | grep -qF -- "zensu $c <feature-uuid>" || M4_MISSING="$M4_MISSING [$c]"
 done
 check "M4 every feature-scoped zensu command passes <feature-uuid>, none another placeholder${M4_MISSING:+ (missing:$M4_MISSING)}" "$(all \
-  "$(uuid_args "$WHOLE")" \
+  "$(uuid_args "$WHOLE" "$SKILL_FEATURE_CMD_RE")" \
   "$([ -z "$M4_MISSING" ] && echo PASS || echo FAIL)")"
 
 check "M5 the CLI table lists the Step 1 resolution commands" "$(all \
@@ -107,10 +83,10 @@ M10_KEY='Run `zensu security analyze <feature-uuid>`, then `zensu security valid
 M10_FEATURE_KEY='Run `zensu security analyze <feature-uuid>`, then `zensu features get <feature-id> --json`.'
 M10_NONE='Run `zensu security posture <product-id>` once.'
 check "M10 the UUID-argument check passes UUID-only text and fails a KEY-N placeholder on a security or features command, or text without a feature call" "$(all \
-  "$(uuid_args "$M10_GOOD")" \
-  "$([ "$(uuid_args "$M10_KEY")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(uuid_args "$M10_FEATURE_KEY")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(uuid_args "$M10_NONE")" = FAIL ] && echo PASS || echo FAIL)")"
+  "$(uuid_args "$M10_GOOD" "$SKILL_FEATURE_CMD_RE")" \
+  "$([ "$(uuid_args "$M10_KEY" "$SKILL_FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$M10_FEATURE_KEY" "$SKILL_FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$M10_NONE" "$SKILL_FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)")"
 
 M11_GOOD='`zensu products list --json` → `zensu features list --product <product-id> --json`'
 M11_LATE='`zensu features list --product <product-id> --json`, then `zensu products list --json`'

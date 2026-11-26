@@ -2,14 +2,8 @@
 set -u
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$PLUGIN_DIR/tests/structure/lib/text-checks.sh"
 SKILL_MD="$PLUGIN_DIR/skills/zensu-bootstrap/SKILL.md"
-
-PASS=0; FAIL=0
-check() {
-  local label="$1" cond="$2"
-  if [ "$cond" = "PASS" ]; then echo "  PASS  $label"; PASS=$((PASS+1));
-  else echo "  FAIL  $label"; FAIL=$((FAIL+1)); fi
-}
 
 if [ ! -f "$SKILL_MD" ]; then
   check "B1 skills/zensu-bootstrap/SKILL.md exists" FAIL
@@ -18,19 +12,6 @@ if [ ! -f "$SKILL_MD" ]; then
   exit 1
 fi
 check "B1 skills/zensu-bootstrap/SKILL.md exists" PASS
-
-section() {
-  awk -v start="$1" -v stop="$2" 'index($0, start) == 1 {p = 1} p && stop != "" && index($0, stop) == 1 {exit} p' "$SKILL_MD" \
-    | tr -s '[:space:]' ' '
-}
-has() { printf '%s' "$1" | grep -qF -- "$2" && echo PASS || echo FAIL; }
-before() {
-  T="$1" A="$2" B="$3" awk 'BEGIN {
-    i = index(ENVIRON["T"], ENVIRON["A"]); j = index(ENVIRON["T"], ENVIRON["B"])
-    print ((i > 0 && j > i) ? "PASS" : "FAIL")
-  }'
-}
-all() { for v in "$@"; do [ "$v" = PASS ] || { echo FAIL; return; }; done; echo PASS; }
 
 STEP1="$(section '**Step 1:' '**Step 2:')"
 STEP2="$(section '**Step 2:' '**Step 3:')"
@@ -57,19 +38,13 @@ check "B3 Phase 3 Step 3 re-reads the feature list before its first security cal
   "$(before "$STEP3" "$LIST_CMD" 'zensu security suggest-tests <feature-uuid>')" \
   "$(before "$STEP3" "$LIST_CMD" 'zensu security threat-model <feature-uuid>')")"
 
-FEATURE_CMD_RE='zensu (features (get|update|status|revision|history|split|merge|deprecate)|subfeatures (add|list|promote)|security (classify|analyze|validate|add-test|review|suggest-tests|threat-model)|tiers set-feature|link (test|docs|source)|doc gen-context) <[^>]*>'
-uuid_args() {
-  local found
-  found="$(printf '%s\n' "$1" | grep -oE -- "$FEATURE_CMD_RE")"
-  [ -n "$found" ] && ! printf '%s\n' "$found" | grep -qvE -- ' <feature-uuid>$' && echo PASS || echo FAIL
-}
 B4_MISSING=""
 for c in 'features deprecate' 'subfeatures add' 'features split' 'features update' 'security classify' \
   'security analyze' 'security suggest-tests' 'security threat-model' 'tiers set-feature'; do
   printf '%s' "$WHOLE" | grep -qF -- "zensu $c <feature-uuid>" || B4_MISSING="$B4_MISSING [$c]"
 done
 check "B4 every feature-scoped zensu command passes <feature-uuid>, none another placeholder${B4_MISSING:+ (missing:$B4_MISSING)}" "$(all \
-  "$(uuid_args "$WHOLE")" \
+  "$(uuid_args "$WHOLE" "$FEATURE_CMD_RE")" \
   "$([ -z "$B4_MISSING" ] && echo PASS || echo FAIL)" \
   "$(has "$STEP1" 'zensu features update <feature-uuid>')" \
   "$(has "$STEP4" 'zensu tiers set-feature <feature-uuid>')")"
@@ -90,10 +65,10 @@ B7_KEY='Run `zensu security analyze <feature-uuid>`, then `zensu subfeatures add
 B7_ID='Run `zensu features update <id>` once.'
 B7_NONE='Run `zensu features list --product <product-id> --json` once.'
 check "B7 the UUID-argument check passes UUID-only text and fails a <feature-id> or <id> placeholder, or text without a feature call" "$(all \
-  "$(uuid_args "$B7_GOOD")" \
-  "$([ "$(uuid_args "$B7_KEY")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(uuid_args "$B7_ID")" = FAIL ] && echo PASS || echo FAIL)" \
-  "$([ "$(uuid_args "$B7_NONE")" = FAIL ] && echo PASS || echo FAIL)")"
+  "$(uuid_args "$B7_GOOD" "$FEATURE_CMD_RE")" \
+  "$([ "$(uuid_args "$B7_KEY" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$B7_ID" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)" \
+  "$([ "$(uuid_args "$B7_NONE" "$FEATURE_CMD_RE")" = FAIL ] && echo PASS || echo FAIL)")"
 
 B8_GOOD="Re-read \`$LIST_CMD\` first, then run \`zensu security analyze <feature-uuid>\`."
 B8_LATE="Run \`zensu security analyze <feature-uuid>\`, then re-read \`$LIST_CMD\`."
