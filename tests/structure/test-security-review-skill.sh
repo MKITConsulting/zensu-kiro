@@ -323,7 +323,7 @@ check "M22 the Kiro CLI write-gate denies both Step 6 recipes outside the skill'
   "$([ "$GATE_AFTER" = 2 ] && echo PASS || echo FAIL)" \
   "$([ "$GATE_AFTER_CONDITIONAL" = 2 ] && echo PASS || echo FAIL)")"
 
-PLM_REVIEW='- `zensu security review <id>` — Record a rejected or conditional review the user chose (`--reviewer` and `--status` required: rejected|conditional; always pass `--type`, which defaults to `manual`; findings and conditions only through `--findings-file`/`--conditions-file`)'
+PLM_REVIEW='- `zensu security review <feature-uuid>` — Record a rejected or conditional review the user chose (`--reviewer` and `--status` required: rejected|conditional; always pass `--type`, which defaults to `manual`; findings and conditions only through `--findings-file`/`--conditions-file`)'
 PLM_CLASSIFY="it only keeps or raises the classification (none recorded counts as \`internal\`), and every value needs \`file:line\` evidence or the user's explicit statement"
 PLM_ADMIN="Lowering a classification, marking a pentest \`passed\` or the threat model \`completed\`, and approving a security review are decisions for an admin signed in to the Zensu web app: Zensu refuses each through the CLI with a \`400\`, and \`/zensu-security-review\` hands them on with the feature's browser link."
 PLM_JSON='Every command except `zensu auth` takes `--json` for machine-readable output'
