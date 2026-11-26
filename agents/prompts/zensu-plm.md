@@ -48,7 +48,7 @@ Roadmaps/milestones are a separate **product-level** axis (many features across 
 
 ### Security
 - `zensu security classify <id>` — Set classification, data sensitivity, auth, encryption, audit settings
-- `zensu security posture --product <id>` — Product-wide security overview
+- `zensu security posture <product-id>` — Product-wide security overview (product id is positional, not `--product`)
 - `zensu security analyze <id>` — Feature security analysis with score and requirements matrix (persists the score server-side, so it is classified a mutation and gated on the main thread — run it inside a skill workflow rather than reaching for `ZENSU_MCP_GATE=off`)
 - `zensu security validate <id>` — Check if feature passes release gate
 - `zensu security add-test <id>` — Link a security test (auth-bypass|injection|access-control|rate-limit|input-validation|data-exposure|header-security|dependency-scan|csrf|xss|ssrf)

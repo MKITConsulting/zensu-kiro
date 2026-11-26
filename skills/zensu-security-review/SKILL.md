@@ -17,9 +17,9 @@ Run a comprehensive security review for a Zensu feature. Guides through classifi
 ## Prerequisites
 
 - Zensu CLI installed (`curl -fsSL https://zensu.dev/install.sh | sh`) and authenticated (`zensu auth login`)
-- A feature ID (KEY-N format, e.g. ZEN-42, or UUID) to review
+- A feature ID to review. The user may name it as a `KEY-N` id (e.g. `ZEN-42`), a slug or a UUID, but every feature-scoped `zensu security` command below takes the feature's UUID, written `<feature-uuid>`: a `KEY-N` id or a slug fails with HTTP 400 `invalid feature id`. Step 1 resolves the ID first.
 
-Every command accepts `--json` for machine-readable output; run `zensu security <verb> --help` for the full flag set.
+Every command accepts `--json` for machine-readable output; run `zensu <noun> <verb> --help` for the full flag set.
 
 ## Workflow
 
@@ -29,7 +29,9 @@ Execute these steps in order. The classification MUST be set first as all subseq
 
 ### Step 1: Set Security Classification
 
-Ask the user for the feature ID, then run `zensu security classify <feature-id>` with the relevant flags:
+Ask the user for the feature ID. If it is not a UUID, resolve it before the first feature call: `zensu products list --json` → the product whose `feature_key` matches the `KEY` prefix (a slug has none: ask the user which product it belongs to) → `zensu features list --product <product-id> --json`, then match `number` for a `KEY-N` id or `slug` for a slug. The matching entry's `id` is the `<feature-uuid>` every later step passes. If no entry or more than one matches, ask the user instead of guessing.
+
+Then run `zensu security classify <feature-uuid>` with the relevant flags:
 
 - `--classification`: public | internal | confidential | restricted
 - `--data-sensitivity`: none | pii | financial | health | credentials
@@ -38,11 +40,11 @@ Ask the user for the feature ID, then run `zensu security classify <feature-id>`
 - `--threat-model-status`: not-required | pending | completed
 - `--pentest-status`: not-required | pending | passed | failed
 
-If the feature already has a classification, run `zensu security analyze <feature-id>` first to see the current state and ask if changes are needed.
+If the feature already has a classification, run `zensu security analyze <feature-uuid>` first to see the current state and ask if changes are needed.
 
 ### Step 2: Analyze Security State
 
-Run `zensu security analyze <feature-id>`. This returns:
+Run `zensu security analyze <feature-uuid>`. This returns:
 - Calculated security score (0-10)
 - Requirements matrix based on classification
 - Release gate status
@@ -51,7 +53,7 @@ Present the results to the user, highlighting current score vs. required thresho
 
 ### Step 3: Suggest Security Tests
 
-Run `zensu security suggest-tests <feature-id>`. This returns the security profile, existing tests, OWASP tags, compliance tags, and requirements.
+Run `zensu security suggest-tests <feature-uuid>`. This returns the security profile, existing tests, OWASP tags, compliance tags, and requirements.
 
 Based on the returned context, recommend specific security tests. Map recommendations to the available test types:
 - `auth-bypass` — Authentication bypass attempts
@@ -68,7 +70,7 @@ Based on the returned context, recommend specific security tests. Map recommenda
 
 ### Step 4: Generate Threat Model
 
-Run `zensu security threat-model <feature-id>`. This returns the feature security profile, existing threat model, product type, and requirements.
+Run `zensu security threat-model <feature-uuid>`. This returns the feature security profile, existing threat model, product type, and requirements.
 
 Generate a STRIDE threat model covering:
 - **S**poofing — Identity and authentication threats
@@ -82,7 +84,7 @@ Present the threat model to the user with specific mitigations for each identifi
 
 ### Step 5: Link Security Tests
 
-For each recommended and implemented security test, run `zensu security add-test <feature-id>` with:
+For each recommended and implemented security test, run `zensu security add-test <feature-uuid>` with:
 - `--type` (required): auth-bypass | injection | access-control | rate-limit | input-validation | data-exposure | header-security | dependency-scan | csrf | xss | ssrf
 - `--file` (required): Path to the test file
 - `--last-run-status` (optional): passed | failed | skipped
@@ -90,20 +92,20 @@ For each recommended and implemented security test, run `zensu security add-test
 
 ### Step 6: Complete Security Review
 
-Run `zensu security review <feature-id>` with:
+Run `zensu security review <feature-uuid>` with:
 - `--reviewer` (required): Reviewer identifier (e.g. "kiro" or username)
 - `--status` (required): approved | rejected | conditional
-- `--review-type` (optional): manual | automated | external (default: manual)
+- `--type` (optional): manual | automated | external (default: manual)
 - `--findings` (optional): Review findings summary
 - `--conditions` (optional): Conditions for conditional approval
 
 ### Step 7: Validate Release Readiness
 
-Run `zensu security validate <feature-id>` to check if the feature passes all security requirements for release.
+Run `zensu security validate <feature-uuid>` to check if the feature passes all security requirements for release.
 
 If the validation fails, present the blocking violations and guide the user through resolving them.
 
-Optionally, run `zensu security posture --product <product-id>` to show the product-wide security overview.
+Optionally, run `zensu security posture <product-id>` to show the product-wide security overview (the product id is a positional argument — there is no `--product` flag on this command). `<product-id>` is the product Step 1 resolved; when the user gave a UUID, take it from the `product_id` in `zensu features get <feature-uuid> --json`.
 
 ### Summary
 
@@ -119,6 +121,8 @@ Present a final summary:
 
 | Command | Step | Purpose |
 |---------|------|---------|
+| `zensu products list` | 1 | Find the product whose `feature_key` is a `KEY-N` id's `KEY` prefix |
+| `zensu features list` | 1 | Resolve a `KEY-N` id or a slug to the feature's UUID (`number` / `slug` match) |
 | `zensu security classify` | 1 | Set security attributes |
 | `zensu security analyze` | 1, 2 | Analyze current security state |
 | `zensu security suggest-tests` | 3 | Get context for test suggestions |
@@ -126,4 +130,5 @@ Present a final summary:
 | `zensu security add-test` | 5 | Link security tests |
 | `zensu security review` | 6 | Complete the review |
 | `zensu security validate` | 7 | Check release gate |
+| `zensu features get` | 7 | Read the feature's `product_id` for the posture call when the user gave a UUID |
 | `zensu security posture` | 7 | Product-wide security overview |
