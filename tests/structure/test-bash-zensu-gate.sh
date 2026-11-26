@@ -81,5 +81,17 @@ gate "B2b out-of-scope mutation in workflow -> DENY" "zensu security classify f1
 ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --workflow-end --session "$WS" >/dev/null 2>&1
 gate "B2c mutation after workflow-end -> DENY"     "zensu features create --name X" 2 "$WS"
 
+gate "B6a flag between noun and verb -> DENY"            "zensu features --json update f1 --priority high" 2
+gate "B6b --api-url value between noun and verb -> DENY" "zensu features --api-url https://api.zensu.dev update f1 --priority high" 2
+gate "B6c --api-url=value before the noun -> DENY"       "zensu --api-url=https://api.zensu.dev security classify f1 --classification internal" 2
+WU="wf-update-$SID"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --workflow-begin --tools "update_feature" --session "$WU" >/dev/null 2>&1
+gate "B6d the flag and --api-url forms resolve to update_feature" "zensu features --json update f1 --priority high && zensu --api-url https://api.zensu.dev features update f1 --priority high && zensu features --api-url https://api.zensu.dev update f1 --priority high" 0 "$WU"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --workflow-end --session "$WU" >/dev/null 2>&1
+WC="wf-classify-$SID"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --workflow-begin --tools "set_security_classification" --session "$WC" >/dev/null 2>&1
+gate "B6e the --api-url=value form resolves to set_security_classification" "zensu --api-url=https://api.zensu.dev security classify f1 --classification internal" 0 "$WC"
+ZENSU_PLUGIN_ROOT="$ROOT" bash "$LOG" --workflow-end --session "$WC" >/dev/null 2>&1
+
 printf 'Result: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
